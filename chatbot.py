@@ -8,6 +8,7 @@ understand the core ideas before moving on to AI/machine-learning bots.
 """
 
 import random
+import string
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,7 @@ KEYWORDS = {
     "thanks": ["thanks", "thank you", "thx"],
     "how_are_you": ["how are you", "how's it going", "how are u"],
     "name": ["your name", "who are you", "what are you"],
+    "ask_my_name": ["my name", "remember my name", "who am i"],
 }
 
 
@@ -72,22 +74,52 @@ def get_intent(message):
     # Lower-casing makes matching case-insensitive ("Hi" == "hi").
     text = message.lower()
 
-    for intent, words in KEYWORDS.items():
-        for word in words:
-            if word in text:
-                return intent
+    # TOKENIZATION: split the sentence into a list of individual words.
+    # "hi there!" -> ["hi", "there!"]
+    words = text.split()
+
+    # Clean punctuation off each word so "hello!" becomes "hello".
+    # str.strip(chars) removes the given characters from BOTH ends of a word.
+    words = [word.strip(string.punctuation) for word in words]
+
+    for intent, keywords in KEYWORDS.items():
+        for keyword in keywords:
+            if " " in keyword:
+                # The keyword is a PHRASE (e.g. "how are you").
+                # We look for it inside the full text.
+                if keyword in text:
+                    return intent
+            else:
+                # The keyword is a SINGLE WORD (e.g. "hi").
+                # It must match a WHOLE word in the message, not just a
+                # piece of one. This is what stops "this" matching "hi".
+                if keyword in words:
+                    return intent
     return None
 
 
 # ---------------------------------------------------------------------------
 # STEP 3: Producing a response.
 # ---------------------------------------------------------------------------
-def get_response(message):
-    """Decide what the bot should say back."""
+def get_response(message, user_name):
+    """Decide what the bot should say back.
+
+    We now pass in `user_name` (the bot's "memory") so replies can be
+    personalised.
+    """
     intent = get_intent(message)
 
     if intent is None:
         return random.choice(FALLBACK)
+
+    # Special case: the user is asking us to recall their name.
+    # We use the stored value instead of a fixed reply.
+    if intent == "ask_my_name":
+        return f"Your name is {user_name}, of course!"
+
+    # Personalise greetings with the remembered name.
+    if intent == "greeting":
+        return f"{random.choice(RESPONSES['greeting'])} Nice to see you, {user_name}!"
 
     return random.choice(RESPONSES[intent])
 
@@ -99,14 +131,20 @@ def get_response(message):
 # until the user decides to leave.
 # ---------------------------------------------------------------------------
 def main():
-    print("ChatBot: Hi! I'm a simple chatbot. Type 'bye' to leave.\n")
+    print("ChatBot: Hi! I'm a simple chatbot. Type 'bye' to leave.")
+
+    # MEMORY (state): we ask once and store the answer in a variable.
+    # Because `user_name` is created here, OUTSIDE the loop, it keeps its
+    # value for the whole conversation, every time around the loop.
+    user_name = input("ChatBot: What's your name?\nYou: ").strip()
+    print(f"ChatBot: Nice to meet you, {user_name}!\n")
 
     while True:
         # 1. Read what the user typed.
         user_message = input("You: ")
 
-        # 2. Figure out a reply.
-        reply = get_response(user_message)
+        # 2. Figure out a reply (passing in our memory of the name).
+        reply = get_response(user_message, user_name)
 
         # 3. Print the reply.
         print("ChatBot:", reply)
