@@ -4,7 +4,7 @@ A simple, **rule-based** chatbot written in pure Python. No external libraries t
 
 ## How to run it
 
-Open a terminal in this folder and run:
+**Option A — in the terminal:**
 
 ```bash
 python3 chatbot.py
@@ -12,13 +12,25 @@ python3 chatbot.py
 
 Then type messages and press Enter. Try things like `hello`, `how are you`, `what time is it`, `tell me a joke`, `what is 5 + 3`, `what is my name`, and `bye`.
 
+**Option B — in the browser (web app):**
+
+```bash
+pip install -r requirements.txt   # one-time: installs Flask
+python3 app.py
+```
+
+Then open **http://127.0.0.1:5000** in your browser. Press `Ctrl+C` in the terminal to stop the server.
+
 ## Files in this project
 
 | File | What it's for |
 |------|---------------|
-| `chatbot.py` | The program logic (how the bot thinks). |
+| `chatbot.py` | The program logic / "brain" (how the bot thinks). |
 | `knowledge.json` | The bot's "knowledge" — keywords and responses (what it knows). |
 | `memory.json` | Created automatically. Stores your name + chat history between runs. |
+| `app.py` | The web server (Flask). Reuses the brain from `chatbot.py`. |
+| `templates/index.html` | The web chat page (HTML + CSS + JavaScript). |
+| `requirements.txt` | The list of external packages to install (just Flask). |
 
 > Deleting `memory.json` makes the bot "forget" you. Editing `knowledge.json` teaches it new words/replies **without touching the code**.
 
@@ -67,6 +79,7 @@ If nothing matches, the bot uses a **fallback** reply. Handling "I don't underst
 |---|---|
 | **Typo tolerance** (`helo` → `hello`) | **Fuzzy matching** / string similarity with `difflib` |
 | **Context** (`another` repeats the last request) | Tracking the previous turn — the basis of conversation flow |
+| **Web interface** (chat in a browser) | **Client/server** apps: Flask backend + HTML/JS frontend talking over HTTP |
 
 ---
 
@@ -124,6 +137,20 @@ You: tell me a joke   -> a joke
 You: another          -> a different joke (context: last_intent was "joke")
 ```
 
+### Web interface (Flask)
+The web app reuses the SAME brain — `app.py` imports `get_intent`,
+`get_response`, and `try_calculate` from `chatbot.py`. The only thing that
+changes is the "front door":
+
+```
+Terminal version:  input()  ->  brain  ->  print()
+Web version:        browser  ->  HTTP POST /chat  ->  brain  ->  JSON reply  ->  browser
+```
+
+The browser (`templates/index.html`) sends your message to the Flask server
+as JSON, the server runs the same logic, and the reply is sent back and
+"typed out" on screen.
+
 ---
 
 ## Key vocabulary
@@ -139,13 +166,15 @@ You: another          -> a different joke (context: last_intent was "joke")
 | **Regex** | A pattern language for finding text (used by the calculator). |
 | **Fuzzy matching** | Matching words that are *similar*, not identical (typo tolerance). |
 | **Context** | Using the previous turn to interpret the current one. |
+| **Client/server** | A frontend (browser) and backend (Flask) talking over HTTP. |
+| **API endpoint** | A URL like `/chat` that takes JSON in and sends JSON out. |
 
 ---
 
 ## Ideas for what to build next
 
 - **Limit history size** — keep only the last N messages (`history[-50:]`).
-- **A web interface** — chat in a browser using Flask/FastAPI.
+- **Per-user sessions** — so multiple people can chat without sharing memory.
 - **Connect to a real AI model** (e.g. the OpenAI API) — real NLU and the modern approach.
 
-Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence, fuzzy matching, context — still applies. You're building the right foundation. 🚀
+Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence, fuzzy matching, context, client/server — still applies. You're building the right foundation. 🚀
