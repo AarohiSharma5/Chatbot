@@ -1,0 +1,20 @@
+# --- Python generated files ---
+# Compiled bytecode cache (auto-created, safe to delete, never commit).
+__pycache__/
+*.py[cod]
+
+# --- Virtual environments (if you create one later) ---
+.venv/
+venv/
+env/
+
+# --- This bot's runtime data (created when you run it) ---
+# The SQLite database and the legacy memory file hold YOUR chat data,
+# not project code, so they shouldn't be committed.
+chatbot.db
+memory.json
+
+# --- Editor / OS junk ---
+.DS_Store
+.vscode/
+.idea/
