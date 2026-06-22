@@ -8,6 +8,7 @@ understand the core ideas before moving on to AI/machine-learning bots.
 """
 
 import datetime
+import difflib
 import json
 import os
 import random
@@ -74,6 +75,17 @@ def save_memory(memory):
 # keywords match for each intent and pick the BEST one (highest score). This
 # handles messages that contain several clues, e.g. "hi, what's the time?".
 # ---------------------------------------------------------------------------
+def is_similar(word_a, word_b, threshold=0.8):
+    """Return True if two words are SIMILAR enough (handles typos).
+
+    difflib compares the words and gives a ratio from 0.0 (totally
+    different) to 1.0 (identical). "helo" vs "hello" scores about 0.89,
+    so with a threshold of 0.8 it counts as a match.
+    """
+    ratio = difflib.SequenceMatcher(None, word_a, word_b).ratio()
+    return ratio >= threshold
+
+
 def get_intent(message):
     """Return the best-matching intent for the message, or None."""
     # Lower-casing makes matching case-insensitive ("Hi" == "hi").
@@ -93,8 +105,11 @@ def get_intent(message):
                 if keyword in text:
                     score += 1
             else:
-                # A SINGLE WORD (e.g. "hi"): must match a WHOLE word.
+                # A SINGLE WORD (e.g. "hi"): must match a WHOLE word...
                 if keyword in words:
+                    score += 1
+                # ...or a CLOSE word, to forgive typos like "helo" -> "hello".
+                elif any(is_similar(keyword, word) for word in words):
                     score += 1
         if score > 0:
             scores[intent] = score
@@ -223,6 +238,10 @@ def main():
         save_memory(memory)
         print(f"ChatBot: Nice to meet you, {user_name}! I'll remember you.\n")
 
+    # CONTEXT: remember the intent of the PREVIOUS turn. This lets the bot
+    # understand follow-ups like "another" (= do the last thing again).
+    last_intent = None
+
     while True:
         # 1. Read what the user typed (.strip() removes stray spaces).
         user_message = input("You: ").strip()
@@ -238,19 +257,31 @@ def main():
         if reply is not None:
             intent = "calc"  # label this turn for the history log
         else:
-            # Otherwise, detect the intent and pick a normal reply.
             intent = get_intent(user_message)
+
+            # 3. CONTEXT in action: if the user said "another"/"again", swap
+            #    in whatever they asked for last time.
+            if intent == "repeat":
+                if last_intent in (None, "repeat"):
+                    intent = None  # nothing to repeat yet -> fallback reply
+                else:
+                    intent = last_intent
+
             reply = get_response(intent, user_name)
 
-        # 3. "Type out" the reply.
+        # 4. "Type out" the reply.
         slow_print(f"ChatBot: {reply}")
 
-        # 4. Record this exchange and save it to disk.
+        # 5. Record this exchange and save it to disk.
         history.append({"you": user_message, "bot": reply})
         memory["history"] = history
         save_memory(memory)
 
-        # 5. A clean exit: if the user said goodbye, leave the loop.
+        # 6. Remember this turn's intent for next time (so "another" works).
+        if intent is not None:
+            last_intent = intent
+
+        # 7. A clean exit: if the user said goodbye, leave the loop.
         if intent == "goodbye":
             slow_print("ChatBot: Chat saved. See you next time!")
             break

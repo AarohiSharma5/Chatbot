@@ -61,6 +61,13 @@ If nothing matches, the bot uses a **fallback** reply. Handling "I don't underst
 | **Simple calculator** | Parsing numbers from text with a **regular expression** (`re`) |
 | **Typing effect** | Loops + `time.sleep` for nicer UX |
 
+### Level 3 — Advanced
+
+| Feature | Concept you learn |
+|---|---|
+| **Typo tolerance** (`helo` → `hello`) | **Fuzzy matching** / string similarity with `difflib` |
+| **Context** (`another` repeats the last request) | Tracking the previous turn — the basis of conversation flow |
+
 ---
 
 ## How the trickier parts work
@@ -100,6 +107,23 @@ pattern = r"(\d+(?:\.\d+)?)\s*([+\-*/])\s*(\d+(?:\.\d+)?)"
 
 If found, we do the math; if not, the bot falls back to normal replies.
 
+### Typo tolerance (fuzzy matching)
+`difflib` measures how similar two words are (0.0 to 1.0). If a typed word is
+close enough to a keyword, it still counts as a match:
+
+```python
+ratio = difflib.SequenceMatcher(None, "helo", "hello").ratio()  # ~0.89
+```
+
+### Context (remembering the last turn)
+We keep a `last_intent` variable across turns. When the user says "another",
+the bot repeats whatever they asked for last:
+
+```
+You: tell me a joke   -> a joke
+You: another          -> a different joke (context: last_intent was "joke")
+```
+
 ---
 
 ## Key vocabulary
@@ -113,15 +137,15 @@ If found, we do the math; if not, the bot falls back to normal replies.
 | **Fallback** | The reply used when the bot doesn't understand. |
 | **NLU** | Natural Language Understanding — turning text into meaning. |
 | **Regex** | A pattern language for finding text (used by the calculator). |
+| **Fuzzy matching** | Matching words that are *similar*, not identical (typo tolerance). |
+| **Context** | Using the previous turn to interpret the current one. |
 
 ---
 
-## Ideas for what to build next (Level 3)
+## Ideas for what to build next
 
-- **Synonyms & typo tolerance** ("helo" → "hello") — string similarity.
-- **Context** — remember the *previous* question so follow-ups make sense. This is the heart of real conversation flow.
 - **Limit history size** — keep only the last N messages (`history[-50:]`).
 - **A web interface** — chat in a browser using Flask/FastAPI.
 - **Connect to a real AI model** (e.g. the OpenAI API) — real NLU and the modern approach.
 
-Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence — still applies. You're building the right foundation. 🚀
+Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence, fuzzy matching, context — still applies. You're building the right foundation. 🚀

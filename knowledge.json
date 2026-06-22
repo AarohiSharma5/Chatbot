@@ -7,7 +7,8 @@
     "name": ["your name", "who are you", "what are you"],
     "ask_my_name": ["my name", "remember my name", "who am i"],
     "time": ["time", "date", "day", "what time", "what day"],
-    "joke": ["joke", "make me laugh", "funny", "tell me something funny"]
+    "joke": ["joke", "make me laugh", "funny", "tell me something funny"],
+    "repeat": ["another", "again", "more", "one more", "next"]
   },
   "responses": {
     "greeting": [
