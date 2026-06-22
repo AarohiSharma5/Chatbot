@@ -6,7 +6,7 @@
     "how_are_you": ["how are you", "how's it going", "how are u"],
     "name": ["your name", "who are you", "what are you"],
     "ask_my_name": ["my name", "remember my name", "who am i"],
-    "time": ["time", "date", "day", "what time", "what day"],
+    "time": ["time", "date", "what day", "what's the date"],
     "joke": ["joke", "make me laugh", "funny", "tell me something funny"],
     "repeat": ["another", "again", "more", "one more", "next"]
   },

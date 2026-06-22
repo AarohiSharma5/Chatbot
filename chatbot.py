@@ -95,7 +95,10 @@ def get_intent(message):
                 if keyword in words:
                     score += 1
                 # ...or a CLOSE word, to forgive typos like "helo" -> "hello".
-                elif any(is_similar(keyword, word) for word in words):
+                # We ONLY fuzzy-match keywords longer than 4 letters: short
+                # words like "day" are too easily matched by accident (e.g.
+                # "days" in "these days" would wrongly trigger the time intent).
+                elif len(keyword) > 4 and any(is_similar(keyword, word) for word in words):
                     score += 1
         if score > 0:
             scores[intent] = score
@@ -163,18 +166,22 @@ def try_calculate(message):
 # ---------------------------------------------------------------------------
 NAME_PATTERNS = [
     r"\bmy name is ([A-Za-z][A-Za-z'\-]{1,29})",
+    r"\b([A-Za-z][A-Za-z'\-]{1,29}) is my name\b",
     r"\bcall me ([A-Za-z][A-Za-z'\-]{1,29})",
+    r"\bi go by ([A-Za-z][A-Za-z'\-]{1,29})",
     r"\bi am ([A-Za-z][A-Za-z'\-]{1,29})",
     r"\bi'?m ([A-Za-z][A-Za-z'\-]{1,29})",
 ]
 
-# Words that often follow "I'm"/"I am" but are NOT names, so we ignore them
-# (otherwise "I'm fine" would set the user's name to "Fine").
+# Words that look like they could follow the patterns above but are NOT names,
+# so we ignore them (otherwise "I'm fine" or "what is my name" would set the
+# name to "Fine"/"What").
 NOT_NAMES = {
     "a", "an", "the", "fine", "good", "great", "ok", "okay", "well", "not",
     "so", "sorry", "here", "tired", "happy", "sad", "bored", "busy", "back",
     "done", "confused", "learning", "trying", "just", "really", "very",
     "feeling", "doing", "going", "sure", "alright", "hungry", "from",
+    "what", "whats", "who", "whos", "your", "my", "this", "that", "it",
 }
 
 
