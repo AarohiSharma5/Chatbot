@@ -16,8 +16,14 @@ replies. The AI is a bonus, never a requirement.
 
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
+
+
+def _log(message):
+    """Print a diagnostic line to stderr (shows up in server logs)."""
+    print(f"[ai_brain] {message}", file=sys.stderr, flush=True)
 
 # WHICH AI PROVIDER TO USE.
 #   "ollama"     -> a model running locally on your computer (free, private)
@@ -129,9 +135,20 @@ def _post_json(url, payload, headers):
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.load(response)
-    except urllib.error.URLError:
+    except urllib.error.HTTPError as error:
+        # The server replied with an error code (401 bad key, 402 no credit,
+        # 404 bad model, 429 rate limit...). Log the body so we can see why.
+        try:
+            body = error.read().decode("utf-8")[:300]
+        except Exception:
+            body = "<no body>"
+        _log(f"HTTP {error.code} from {url}: {body}")
         return None
-    except Exception:
+    except urllib.error.URLError as error:
+        _log(f"network error contacting {url}: {error.reason}")
+        return None
+    except Exception as error:
+        _log(f"unexpected error contacting {url}: {error}")
         return None
 
 
@@ -148,14 +165,18 @@ def _ask_ollama(messages):
 def _ask_openrouter(messages):
     """Get a reply from a cloud model via OpenRouter."""
     if not OPENROUTER_API_KEY:
-        return None  # no key set -> fall back (set OPENROUTER_API_KEY)
+        _log("OPENROUTER_API_KEY is not set -> using rule-based fallback")
+        return None
 
     result = _post_json(
         OPENROUTER_URL,
         {"model": OPENROUTER_MODEL, "messages": messages},
         {"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
     )
-    if result is None or "error" in result:
+    if result is None:
+        return None
+    if "error" in result:
+        _log(f"OpenRouter returned error: {str(result['error'])[:300]}")
         return None
     # OpenRouter (OpenAI-style) returns {"choices": [{"message": {"content"}}]}.
     choices = result.get("choices")
@@ -220,6 +241,7 @@ def _stream_openrouter(messages):
     """Stream from OpenRouter. It uses Server-Sent Events: lines that look
     like `data: {json}`, with each piece in choices[0].delta.content."""
     if not OPENROUTER_API_KEY:
+        _log("OPENROUTER_API_KEY is not set -> using rule-based fallback")
         return
 
     payload = {"model": OPENROUTER_MODEL, "messages": messages, "stream": True}
@@ -235,7 +257,15 @@ def _stream_openrouter(messages):
 
     try:
         response = urllib.request.urlopen(request, timeout=120)
-    except Exception:
+    except urllib.error.HTTPError as error:
+        try:
+            body = error.read().decode("utf-8")[:300]
+        except Exception:
+            body = "<no body>"
+        _log(f"OpenRouter stream HTTP {error.code}: {body}")
+        return
+    except Exception as error:
+        _log(f"OpenRouter stream error: {error}")
         return
 
     try:

@@ -154,6 +154,47 @@ def try_calculate(message):
 
 
 # ---------------------------------------------------------------------------
+# DETECTING THE USER'S NAME from a sentence.
+#
+# The terminal bot asks "What's your name?" once at startup. The web bot has
+# no startup prompt, so instead we LISTEN for the name in normal chat: phrases
+# like "my name is Aarohi" or "I'm Aarohi". We use regex to pull out the word
+# right after those phrases.
+# ---------------------------------------------------------------------------
+NAME_PATTERNS = [
+    r"\bmy name is ([A-Za-z][A-Za-z'\-]{1,29})",
+    r"\bcall me ([A-Za-z][A-Za-z'\-]{1,29})",
+    r"\bi am ([A-Za-z][A-Za-z'\-]{1,29})",
+    r"\bi'?m ([A-Za-z][A-Za-z'\-]{1,29})",
+]
+
+# Words that often follow "I'm"/"I am" but are NOT names, so we ignore them
+# (otherwise "I'm fine" would set the user's name to "Fine").
+NOT_NAMES = {
+    "a", "an", "the", "fine", "good", "great", "ok", "okay", "well", "not",
+    "so", "sorry", "here", "tired", "happy", "sad", "bored", "busy", "back",
+    "done", "confused", "learning", "trying", "just", "really", "very",
+    "feeling", "doing", "going", "sure", "alright", "hungry", "from",
+}
+
+
+def detect_name(message):
+    """Return the user's name if the message states it, else None.
+
+    We try high-confidence phrases first ("my name is ...", "call me ...")
+    then the looser "I'm ..." form, skipping common non-name words.
+    """
+    for pattern in NAME_PATTERNS:
+        match = re.search(pattern, message, re.IGNORECASE)
+        if match:
+            name = match.group(1).strip()
+            if name.lower() in NOT_NAMES:
+                continue  # e.g. "I'm fine" -> not a name
+            return name.capitalize()
+    return None
+
+
+# ---------------------------------------------------------------------------
 # STEP 3: Producing a response.
 # ---------------------------------------------------------------------------
 def get_response(intent, user_name, message="", history=None):
@@ -179,7 +220,9 @@ def get_response(intent, user_name, message="", history=None):
 
     # Special case: the user is asking us to recall their name.
     if intent == "ask_my_name":
-        return f"Your name is {user_name}, of course!"
+        if user_name:
+            return f"Your name is {user_name}, of course!"
+        return "I don't know your name yet! Tell me by saying 'my name is ...'."
 
     # The date/time changes constantly, so we build this reply FRESH.
     if intent == "time":
@@ -188,9 +231,12 @@ def get_response(intent, user_name, message="", history=None):
         day = now.strftime("%A, %d %B %Y")        # e.g. "Monday, 22 June 2026"
         return f"It's {clock} on {day}."
 
-    # Personalise greetings with the remembered name.
+    # Personalise greetings with the remembered name (if we know it).
     if intent == "greeting":
-        return f"{random.choice(RESPONSES['greeting'])} Nice to see you, {user_name}!"
+        greeting = random.choice(RESPONSES["greeting"])
+        if user_name:
+            return f"{greeting} Nice to see you, {user_name}!"
+        return greeting
 
     return random.choice(RESPONSES[intent])
 
@@ -248,6 +294,15 @@ def main():
         # skips the rest of this turn and starts the next one.
         if user_message == "":
             slow_print("ChatBot: Say something, or type 'bye' to leave.")
+            continue
+
+        # 1b. Did they (re)tell us their name mid-chat? Learn it.
+        new_name = detect_name(user_message)
+        if new_name and new_name != user_name:
+            user_name = new_name
+            storage.save_user_name(user_name)
+            slow_print(f"ChatBot: Nice to meet you, {user_name}! I'll remember that.")
+            storage.add_message(user_message, f"Nice to meet you, {user_name}!")
             continue
 
         # 2. Try math FIRST. If the message is a calculation, answer it.

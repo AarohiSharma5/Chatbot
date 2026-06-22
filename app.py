@@ -32,11 +32,33 @@ history = memory.get("history", [])
 last_intent = None
 
 
+def capture_name(user_message):
+    """If the message states the user's name, save it and confirm.
+
+    The web bot has no startup "what's your name?" prompt, so we learn the
+    name from chat ("my name is ...", "I'm ..."). Returns a confirmation
+    reply if a name was found, otherwise None.
+    """
+    name = chatbot.detect_name(user_message)
+    if not name:
+        return None
+    storage.save_user_name(name)
+    memory["user_name"] = name  # update the in-memory copy too
+    return f"Nice to meet you, {name}! I'll remember that."
+
+
 def build_reply(user_message):
     """Turn one user message into a bot reply. Mirrors the terminal loop."""
     global last_intent
 
-    user_name = memory.get("user_name", "friend")
+    user_name = memory.get("user_name")
+
+    # 0. Did they tell us their name? Learn it and confirm.
+    name_reply = capture_name(user_message)
+    if name_reply is not None:
+        history.append({"you": user_message, "bot": name_reply})
+        storage.add_message(user_message, name_reply)
+        return name_reply
 
     # 1. Try math first.
     reply = chatbot.try_calculate(user_message)
@@ -81,7 +103,14 @@ def stream_reply(user_message):
     Rule-based answers (math, jokes, time...) are instant, so we yield them
     in one piece. Only the AI fallback is truly streamed, chunk by chunk.
     """
-    user_name = memory.get("user_name", "friend")
+    user_name = memory.get("user_name")
+
+    # Did they tell us their name? Learn it and confirm (instant).
+    name_reply = capture_name(user_message)
+    if name_reply is not None:
+        yield name_reply
+        _save_exchange(user_message, name_reply, "set_name")
+        return
 
     # Math and rule-based intents are instant -> yield the whole reply once.
     reply = chatbot.try_calculate(user_message)
