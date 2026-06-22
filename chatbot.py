@@ -7,6 +7,7 @@ This is how the very first chatbots worked, and it's the best way to
 understand the core ideas before moving on to AI/machine-learning bots.
 """
 
+import datetime
 import json
 import os
 import random
@@ -44,6 +45,13 @@ RESPONSES = {
         "I'm ChatBot, your friendly assistant.",
         "You can call me ChatBot.",
     ],
+    "joke": [
+        "Why do programmers prefer dark mode? Because light attracts bugs!",
+        "Why did the developer go broke? Because he used up all his cache.",
+        "I told my computer I needed a break, and it said 'No problem, I'll go to sleep.'",
+        "Why was the function sad after a party? It didn't get called.",
+        "There are 10 kinds of people: those who understand binary and those who don't.",
+    ],
 }
 
 # A fallback list used when we don't understand the user.
@@ -68,6 +76,8 @@ KEYWORDS = {
     "how_are_you": ["how are you", "how's it going", "how are u"],
     "name": ["your name", "who are you", "what are you"],
     "ask_my_name": ["my name", "remember my name", "who am i"],
+    "time": ["time", "date", "day", "what time", "what day"],
+    "joke": ["joke", "make me laugh", "funny", "tell me something funny"],
 }
 
 
@@ -103,14 +113,11 @@ def get_intent(message):
 # ---------------------------------------------------------------------------
 # STEP 3: Producing a response.
 # ---------------------------------------------------------------------------
-def get_response(message, user_name):
-    """Decide what the bot should say back.
+def get_response(intent, user_name):
+    """Decide what the bot should say back, based on the detected intent.
 
-    We now pass in `user_name` (the bot's "memory") so replies can be
-    personalised.
+    `user_name` (the bot's "memory") lets us personalise some replies.
     """
-    intent = get_intent(message)
-
     if intent is None:
         return random.choice(FALLBACK)
 
@@ -118,6 +125,14 @@ def get_response(message, user_name):
     # We use the stored value instead of a fixed reply.
     if intent == "ask_my_name":
         return f"Your name is {user_name}, of course!"
+
+    # The date/time changes constantly, so we build this reply FRESH each
+    # time instead of storing a fixed sentence.
+    if intent == "time":
+        now = datetime.datetime.now()
+        clock = now.strftime("%I:%M %p")          # e.g. "05:20 PM"
+        day = now.strftime("%A, %d %B %Y")        # e.g. "Monday, 22 June 2026"
+        return f"It's {clock} on {day}."
 
     # Personalise greetings with the remembered name.
     if intent == "greeting":
@@ -188,26 +203,31 @@ def main():
         print(f"ChatBot: Nice to meet you, {user_name}! I'll remember you.\n")
 
     while True:
-        # 1. Read what the user typed.
-        user_message = input("You: ")
+        # 1. Read what the user typed (.strip() removes stray spaces).
+        user_message = input("You: ").strip()
 
-        # 2. Figure out a reply (passing in our memory of the name).
-        reply = get_response(user_message, user_name)
+        # If the user just pressed Enter without typing anything, gently
+        # re-prompt. "continue" skips the rest of this turn and loops again.
+        if user_message == "":
+            print("ChatBot: Say something, or type 'bye' to leave.")
+            continue
 
-        # 3. Print the reply.
+        # 2. Detect the intent ONCE, then reuse it below (no double work).
+        intent = get_intent(user_message)
+
+        # 3. Figure out and print a reply.
+        reply = get_response(intent, user_name)
         print("ChatBot:", reply)
 
-        # 4. Record this exchange in the history list. Each entry is a small
-        #    dictionary holding what the user said and how we replied.
+        # 4. Record this exchange in the history list, then save to disk
+        #    so nothing is lost even if the program closes unexpectedly.
         history.append({"you": user_message, "bot": reply})
-
-        # 5. Save the updated history to disk after every turn, so nothing
-        #    is lost even if the program closes unexpectedly.
         memory["history"] = history
         save_memory(memory)
 
-        # 6. Stop the loop if the user said goodbye.
-        if get_intent(user_message) == "goodbye":
+        # 5. A clean exit: if the user said goodbye, leave the loop.
+        if intent == "goodbye":
+            print("ChatBot: Chat saved. See you next time!")
             break
 
 
