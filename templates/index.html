@@ -49,6 +49,20 @@
       box-shadow: 0 0 0 3px rgba(212, 180, 131, 0.25);
     }
 
+    .chat__header .memories-link {
+      margin-left: auto;
+      color: #e6d3b3;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 5px 11px;
+      border: 1px solid #6d4c41;
+      border-radius: 18px;
+      transition: background 0.15s;
+    }
+
+    .chat__header .memories-link:hover { background: rgba(212, 180, 131, 0.15); }
+
     /* ---- Message list ---- */
     .chat__messages {
       flex: 1;
@@ -130,6 +144,7 @@
     <div class="chat__header">
       <span class="dot"></span>
       ChatBot
+      <a class="memories-link" href="{{ url_for('memories_page') }}">Memory</a>
     </div>
 
     <div class="chat__messages" id="messages"></div>

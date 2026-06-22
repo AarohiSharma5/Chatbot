@@ -10,7 +10,7 @@ one message at a time over HTTP.
 
 import random
 
-from flask import Flask, Response, render_template, request, jsonify
+from flask import Flask, Response, redirect, render_template, request, jsonify, url_for
 
 # Reuse the logic we already built and tested in chatbot.py.
 import ai_brain
@@ -120,6 +120,20 @@ def stream_reply(user_message):
 def index():
     """Serve the chat web page."""
     return render_template("index.html")
+
+
+@app.route("/memories")
+def memories_page():
+    """Show every durable fact the bot has stored about the user."""
+    facts = storage.list_memories()
+    return render_template("memories.html", facts=facts)
+
+
+@app.route("/memories/<int:memory_id>/delete", methods=["POST"])
+def delete_memory(memory_id):
+    """Forget one fact, then return to the memory viewer."""
+    storage.delete_memory(memory_id)
+    return redirect(url_for("memories_page"))
 
 
 @app.route("/chat", methods=["POST"])

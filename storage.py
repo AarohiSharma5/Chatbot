@@ -163,6 +163,31 @@ def get_all_memories():
     return memories
 
 
+def list_memories():
+    """Return every stored fact for display: newest first, with id + date.
+
+    We deliberately leave OUT the embedding here -- that big list of numbers
+    is only useful for similarity math, not for showing to a human.
+    """
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, text, created FROM memories ORDER BY id DESC")
+    rows = [
+        {"id": mem_id, "text": text, "created": created}
+        for (mem_id, text, created) in cursor.fetchall()
+    ]
+    conn.close()
+    return rows
+
+
+def delete_memory(memory_id):
+    """Delete one stored fact by its id (used by the memory viewer)."""
+    conn = _connect()
+    conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+    conn.commit()
+    conn.close()
+
+
 def _migrate_from_json(json_file="memory.json"):
     """One-time import: if an old memory.json exists and the database is
     still empty, copy its data in. This preserves your previous chats."""

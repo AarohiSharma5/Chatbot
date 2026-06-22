@@ -76,6 +76,7 @@ Once that's installed, open-ended things you tell the bot get stored as **embedd
 | `memory.json` | Legacy file. Auto-migrated into the database on first run. |
 | `app.py` | The web server (Flask). Reuses the brain from `chatbot.py`. |
 | `templates/index.html` | The web chat page (HTML + CSS + JavaScript). |
+| `templates/memories.html` | The "memory viewer" — lists every fact the bot remembers, with delete buttons. |
 | `ai_brain.py` | Optional AI upgrade: talks to a local Ollama model. |
 | `requirements.txt` | The list of external packages to install (just Flask). |
 
@@ -259,6 +260,10 @@ Using a model to turn messy text into clean structured data (here, a list of
 facts) is a hugely common real-world pattern -- the same trick powers tagging,
 summarizing, and data extraction pipelines.
 
+You can **see and manage** these facts yourself: click **Memory** in the chat
+header (or visit `/memories`) to view every stored fact and delete any you
+want the bot to forget.
+
 This is **RAG (Retrieval-Augmented Generation)**: retrieve relevant facts,
 then generate. We use Ollama for embeddings and SQLite as a hand-built
 vector store — no extra libraries. Needs `ollama pull nomic-embed-text`;
@@ -322,7 +327,7 @@ rule-based bot. (The terminal version keeps its own simulated typing effect.)
 
 - **Limit / summarize history** — keep only the last N messages, or summarize old ones.
 - **Per-user sessions** — so multiple people can chat without sharing memory.
-- **A "memory viewer"** — a page that lists every fact the bot has stored about you.
+- **Merge similar facts** — collapse near-duplicate memories ("studies Python" vs "learning Python").
 - **Deploy it online** — host the web app so anyone can use it via a URL.
 
 Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence, fuzzy matching, context, client/server, hybrid AI — still applies. You're building the right foundation. 🚀
