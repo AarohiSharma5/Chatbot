@@ -78,7 +78,9 @@ Once that's installed, open-ended things you tell the bot get stored as **embedd
 | `templates/index.html` | The web chat page (HTML + CSS + JavaScript). |
 | `templates/memories.html` | The "memory viewer" — lists every fact the bot remembers, with delete buttons. |
 | `ai_brain.py` | Optional AI upgrade: talks to a local Ollama model. |
-| `requirements.txt` | The list of external packages to install (just Flask). |
+| `requirements.txt` | The list of external packages to install (Flask + gunicorn). |
+| `Procfile` | The command a host runs to start the app (`gunicorn`). |
+| `render.yaml` | One-click deploy config for Render (build/start command + env vars). |
 
 > Deleting `memory.json` makes the bot "forget" you. Editing `knowledge.json` teaches it new words/replies **without touching the code**.
 
@@ -323,11 +325,45 @@ rule-based bot. (The terminal version keeps its own simulated typing effect.)
 
 ---
 
+## Deploying online (Render)
+
+Want a public URL anyone can open? The repo is ready to deploy to
+[Render](https://render.com)'s free tier.
+
+**Two things change in the cloud:**
+- The server has **no local Ollama**, so the bot uses **OpenRouter** for chat
+  (set via env vars below). Long-term memory (which needs Ollama embeddings)
+  is skipped automatically — chat still works fine.
+- A real server (**gunicorn**) runs the app instead of Flask's dev server.
+  This is already configured in `Procfile` and `render.yaml`.
+
+**Steps:**
+1. Push this project to a GitHub repo.
+2. Get a free OpenRouter API key at <https://openrouter.ai/keys>.
+3. In Render: **New + → Blueprint**, pick your repo. It reads `render.yaml`
+   and sets everything up. (Or **New + → Web Service** and use build command
+   `pip install -r requirements.txt` and the start command from `Procfile`.)
+4. When asked, paste your key into the `OPENROUTER_API_KEY` environment
+   variable. `CHATBOT_AI_PROVIDER` is already set to `openrouter`.
+5. Deploy. You'll get a URL like `https://chatbot-xxxx.onrender.com`.
+
+**Good to know:**
+- The free tier **sleeps after ~15 min idle**; the first request after that
+  takes a few seconds to wake up.
+- Render's free disk is **ephemeral**, so `chatbot.db` (saved name + history)
+  resets on restart. To keep it, add a persistent disk and point the bot at it
+  with the `CHATBOT_DB` env var (e.g. `/data/chatbot.db`).
+
+The relevant files: `Procfile` (start command), `render.yaml` (full config),
+and `requirements.txt` (now includes `gunicorn`).
+
+---
+
 ## Ideas for what to build next
 
 - **Limit / summarize history** — keep only the last N messages, or summarize old ones.
 - **Per-user sessions** — so multiple people can chat without sharing memory.
 - **Merge similar facts** — collapse near-duplicate memories ("studies Python" vs "learning Python").
-- **Deploy it online** — host the web app so anyone can use it via a URL.
+- **A cloud embedding API** — so long-term memory works in the cloud too (no Ollama).
 
 Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence, fuzzy matching, context, client/server, hybrid AI — still applies. You're building the right foundation. 🚀

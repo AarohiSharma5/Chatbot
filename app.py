@@ -8,6 +8,7 @@ terminal. The terminal loop is replaced by a web server that answers
 one message at a time over HTTP.
 """
 
+import os
 import random
 
 from flask import Flask, Response, redirect, render_template, request, jsonify, url_for
@@ -176,5 +177,12 @@ def chat_stream():
 
 
 if __name__ == "__main__":
-    # debug=True auto-reloads the server when you edit the code.
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    # Running directly (e.g. `python app.py`) is for LOCAL development.
+    # In production, a real server (gunicorn) imports `app` instead and this
+    # block never runs -- see the Procfile / Render start command.
+    #
+    # Hosts tell us which port to use via the PORT environment variable, so
+    # we read it (defaulting to 5000 for local use). We bind to 0.0.0.0 so
+    # the server is reachable from outside the container, not just localhost.
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)

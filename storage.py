@@ -17,7 +17,9 @@ import json
 import os
 import sqlite3
 
-DB_FILE = "chatbot.db"
+# Where the SQLite file lives. Defaults to the project folder, but a host can
+# point it at a persistent disk by setting CHATBOT_DB (e.g. /data/chatbot.db).
+DB_FILE = os.environ.get("CHATBOT_DB", "chatbot.db")
 
 
 def _connect():

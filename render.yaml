@@ -1,0 +1,21 @@
+# Render "Blueprint": describes how to build and run the app so the whole
+# deploy can be created from this file. In Render: New + -> Blueprint ->
+# pick your repo, and it reads this.
+services:
+  - type: web
+    name: chatbot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # 1 worker with several threads: enough for a demo, and threads let the
+    # streaming endpoint serve one user while another is mid-reply.
+    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 120
+    envVars:
+      # Use the cloud AI provider (the server has no local Ollama).
+      - key: CHATBOT_AI_PROVIDER
+        value: openrouter
+      # Secret: leave blank here and paste your key in the Render dashboard.
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.12.3"
