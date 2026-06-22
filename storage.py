@@ -1,0 +1,136 @@
+"""
+The STORAGE LAYER -- where the bot keeps its memory.
+
+We previously saved everything to a JSON file. Now we use a real database:
+SQLite. SQLite is special because it's built into Python (no server to run,
+no install) and stores everything in a single file (chatbot.db). The SQL we
+write here is the SAME SQL you'd use with PostgreSQL or MySQL, so these
+skills transfer directly to professional databases.
+
+Why a "storage layer"? The rest of the program doesn't care HOW data is
+stored -- it just calls load_memory(), save_user_name(), and add_message().
+That means we could swap SQLite for Postgres later by changing ONLY this
+file. Separating storage from logic like this is a key professional pattern.
+"""
+
+import json
+import os
+import sqlite3
+
+DB_FILE = "chatbot.db"
+
+
+def _connect():
+    """Open a connection to the SQLite database file."""
+    return sqlite3.connect(DB_FILE)
+
+
+def init_db():
+    """Create the tables if they don't exist yet, then migrate old data.
+
+    A TABLE is like a spreadsheet: rows of data with named columns.
+    We use two tables:
+      - settings: simple key/value pairs (e.g. the user's name)
+      - messages: one row per chat exchange, with a timestamp
+    """
+    conn = _connect()
+
+    # "IF NOT EXISTS" means this is safe to run every startup.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS messages (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            you     TEXT NOT NULL,
+            bot     TEXT NOT NULL,
+            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    _migrate_from_json()
+
+
+def load_memory():
+    """Read the user's name and full chat history out of the database.
+
+    Returns the SAME shape the rest of the program already expects:
+    {"user_name": <name or None>, "history": [{"you": ..., "bot": ...}, ...]}
+    """
+    conn = _connect()
+    cursor = conn.cursor()
+
+    # SELECT pulls data out. Here we read the saved name (if any).
+    cursor.execute("SELECT value FROM settings WHERE key = 'user_name'")
+    row = cursor.fetchone()             # one row, or None
+    user_name = row[0] if row else None
+
+    # Read every message, oldest first (ORDER BY id).
+    cursor.execute("SELECT you, bot FROM messages ORDER BY id")
+    history = [{"you": you, "bot": bot} for (you, bot) in cursor.fetchall()]
+
+    conn.close()
+    return {"user_name": user_name, "history": history}
+
+
+def save_user_name(name):
+    """Store (or update) the user's name in the settings table."""
+    conn = _connect()
+    # The "?" is a placeholder. Passing values separately (not by string
+    # formatting) is how you PREVENT SQL INJECTION -- a critical security
+    # habit. ON CONFLICT updates the row if the key already exists.
+    conn.execute(
+        """
+        INSERT INTO settings (key, value) VALUES ('user_name', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        (name,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def add_message(you, bot):
+    """Insert ONE new exchange. Unlike the file approach, we add a single
+    row instead of rewriting the entire history every time -- this is a big
+    reason databases scale better than files."""
+    conn = _connect()
+    conn.execute("INSERT INTO messages (you, bot) VALUES (?, ?)", (you, bot))
+    conn.commit()
+    conn.close()
+
+
+def _migrate_from_json(json_file="memory.json"):
+    """One-time import: if an old memory.json exists and the database is
+    still empty, copy its data in. This preserves your previous chats."""
+    if not os.path.exists(json_file):
+        return
+
+    existing = load_memory()
+    if existing["user_name"] or existing["history"]:
+        return  # database already has data; nothing to migrate
+
+    try:
+        with open(json_file, "r") as file:
+            old = json.load(file)
+    except (json.JSONDecodeError, OSError):
+        return
+
+    if old.get("user_name"):
+        save_user_name(old["user_name"])
+    for turn in old.get("history", []):
+        if "you" in turn and "bot" in turn:
+            add_message(turn["you"], turn["bot"])
+
+
+# Make sure the tables exist as soon as this module is imported.
+init_db()

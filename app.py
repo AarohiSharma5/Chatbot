@@ -12,11 +12,13 @@ from flask import Flask, render_template, request, jsonify
 
 # Reuse the logic we already built and tested in chatbot.py.
 import chatbot
+import storage
 
 app = Flask(__name__)
 
-# Load any memory saved by previous runs (e.g. the user's name).
-memory = chatbot.load_memory()
+# Load any memory saved by previous runs (e.g. the user's name) from the
+# SQLite database -- the SAME storage the terminal bot uses.
+memory = storage.load_memory()
 history = memory.get("history", [])
 
 # CONTEXT: like the terminal version, we remember the previous intent so
@@ -47,10 +49,10 @@ def build_reply(user_message):
 
         reply = chatbot.get_response(intent, user_name, user_message, history)
 
-    # 3. Save this exchange to the same memory file the terminal bot uses.
+    # 3. Save this exchange: keep it in memory (for AI context) and insert
+    #    a new row into the database (shared with the terminal bot).
     history.append({"you": user_message, "bot": reply})
-    memory["history"] = history
-    chatbot.save_memory(memory)
+    storage.add_message(user_message, reply)
 
     # 4. Remember the intent for next time.
     if intent is not None:

@@ -42,7 +42,9 @@ You can change the model in `ai_brain.py` (the `MODEL` variable) to any model yo
 |------|---------------|
 | `chatbot.py` | The program logic / "brain" (how the bot thinks). |
 | `knowledge.json` | The bot's "knowledge" — keywords and responses (what it knows). |
-| `memory.json` | Created automatically. Stores your name + chat history between runs. |
+| `storage.py` | The storage layer — saves memory in a SQLite database (`chatbot.db`). |
+| `chatbot.db` | Created automatically. The SQLite database (your name + chat history). |
+| `memory.json` | Legacy file. Auto-migrated into the database on first run. |
 | `app.py` | The web server (Flask). Reuses the brain from `chatbot.py`. |
 | `templates/index.html` | The web chat page (HTML + CSS + JavaScript). |
 | `ai_brain.py` | Optional AI upgrade: talks to a local Ollama model. |
@@ -82,7 +84,8 @@ If nothing matches, the bot uses a **fallback** reply. Handling "I don't underst
 
 | Feature | Concept you learn |
 |---|---|
-| **Save name + history to a file** | **Persistence** — data that survives restarts (`json`, file read/write) |
+| **Save name + history** | **Persistence** — data that survives restarts |
+| **SQLite database** (`storage.py`) | Real **SQL**: tables, `INSERT`/`SELECT`, a **storage layer**, data migration |
 | **Conversation history log** | A growing **list of dictionaries** |
 | **Load responses from `knowledge.json`** | **Separating data from code** — change behavior by editing data, not logic |
 | **Intent scoring** | Pick the *best* intent by counting keyword matches, not the first match |
@@ -119,14 +122,28 @@ Instead of returning the first match, we count how many keywords match each inte
 return max(scores, key=scores.get)  # the intent with the most matches
 ```
 
-### Memory & persistence
-The bot's memory is a dictionary saved to `memory.json`:
+### Memory & persistence (SQLite database)
+The bot's memory now lives in a real database, `chatbot.db`, managed by
+`storage.py`. There are two tables:
 
-```json
-{ "user_name": "Aarohi", "history": [ { "you": "hello", "bot": "Hi there!" } ] }
+- `settings` — key/value pairs (e.g. `user_name`)
+- `messages` — one row per exchange (`you`, `bot`, `created` timestamp)
+
+The rest of the program doesn't know or care that it's SQLite — it just calls
+`storage.load_memory()`, `storage.save_user_name()`, and `storage.add_message()`.
+This is a **storage layer**: swap SQLite for PostgreSQL later by editing only
+`storage.py`. Key SQL ideas you'll see there:
+
+```sql
+CREATE TABLE messages (id INTEGER PRIMARY KEY, you TEXT, bot TEXT, created TIMESTAMP);
+INSERT INTO messages (you, bot) VALUES (?, ?);   -- ? prevents SQL injection
+SELECT you, bot FROM messages ORDER BY id;
 ```
 
-`json.dump` writes it; `json.load` reads it back next time. That's why the bot greets you by name even after you close it.
+Unlike the old file approach (which rewrote everything every turn), the
+database `INSERT`s just one new row per message — a big reason databases
+scale better than files. Your old `memory.json` is migrated in automatically
+on first run.
 
 ### Calculator (regex)
 A regular expression finds `number operator number` inside a sentence:
@@ -202,6 +219,9 @@ running, `ask_ai()` returns `None` and the bot uses a canned fallback.
 | **API endpoint** | A URL like `/chat` that takes JSON in and sends JSON out. |
 | **Hybrid bot** | Rules for known tasks + an AI model for everything else. |
 | **System prompt** | Instructions that shape an AI model's behavior. |
+| **Database / SQL** | Tables, rows, `INSERT`/`SELECT`; a serverless DB (SQLite). |
+| **Storage layer** | Hiding storage details so backends can be swapped. |
+| **SQL injection** | Why query values use `?` placeholders, never string formatting. |
 
 ---
 

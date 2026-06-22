@@ -10,13 +10,13 @@ understand the core ideas before moving on to AI/machine-learning bots.
 import datetime
 import difflib
 import json
-import os
 import random
 import re
 import string
 import time
 
 import ai_brain  # optional AI upgrade (used only as a smart fallback)
+import storage   # where the bot's memory is saved (SQLite database)
 
 
 # ---------------------------------------------------------------------------
@@ -43,31 +43,14 @@ FALLBACK = knowledge["fallback"]    # replies for "I didn't understand"
 
 
 # ---------------------------------------------------------------------------
-# PERSISTENCE: saving memory to a file so it survives after the program ends.
+# PERSISTENCE: the bot's memory now lives in a SQLite database.
 #
-# A normal variable disappears when the program closes. To REMEMBER things
-# between runs, we write them to a file on disk and read them back next time.
+# All the database details (tables, SQL queries) live in storage.py. From
+# here we just call storage.load_memory(), storage.save_user_name(), and
+# storage.add_message() -- we don't care HOW they store the data. That clean
+# separation is exactly why we could later swap SQLite for PostgreSQL by
+# editing only storage.py.
 # ---------------------------------------------------------------------------
-MEMORY_FILE = "memory.json"
-
-
-def load_memory():
-    """Read saved memory from the file. Returns a dictionary."""
-    # If the file doesn't exist yet (e.g. the very first run), start empty.
-    if not os.path.exists(MEMORY_FILE):
-        return {}
-
-    # "with open(...)" safely opens the file and closes it automatically.
-    # "r" means we're opening it to READ.
-    with open(MEMORY_FILE, "r") as file:
-        return json.load(file)  # turn the file's JSON text back into a dict
-
-
-def save_memory(memory):
-    """Write the memory dictionary to the file as JSON."""
-    # "w" means we're opening it to WRITE (this overwrites the old contents).
-    with open(MEMORY_FILE, "w") as file:
-        json.dump(memory, file)  # turn the dict into JSON text and store it
 
 
 # ---------------------------------------------------------------------------
@@ -231,12 +214,12 @@ def slow_print(text, delay=0.02):
 def main():
     print("ChatBot: Hi! I'm a simple chatbot. Type 'bye' to leave.")
 
-    # Load whatever we saved during previous runs.
-    memory = load_memory()
+    # Load whatever we saved during previous runs (from the database).
+    memory = storage.load_memory()
     user_name = memory.get("user_name")
 
-    # Load the saved chat history (a list of past exchanges). The second
-    # argument to .get() is the DEFAULT used when there's no history yet.
+    # The chat history (a list of past exchanges). We keep it in memory too,
+    # so we can pass recent turns to the AI for context.
     history = memory.get("history", [])
 
     if user_name:
@@ -244,8 +227,7 @@ def main():
         print(f"ChatBot: We've exchanged {len(history)} messages before.\n")
     else:
         user_name = input("ChatBot: What's your name?\nYou: ").strip()
-        memory["user_name"] = user_name
-        save_memory(memory)
+        storage.save_user_name(user_name)
         print(f"ChatBot: Nice to meet you, {user_name}! I'll remember you.\n")
 
     # CONTEXT: remember the intent of the PREVIOUS turn. This lets the bot
@@ -282,10 +264,10 @@ def main():
         # 4. "Type out" the reply.
         slow_print(f"ChatBot: {reply}")
 
-        # 5. Record this exchange and save it to disk.
+        # 5. Record this exchange: keep it in memory (for AI context) AND
+        #    insert it as a new row in the database.
         history.append({"you": user_message, "bot": reply})
-        memory["history"] = history
-        save_memory(memory)
+        storage.add_message(user_message, reply)
 
         # 6. Remember this turn's intent for next time (so "another" works).
         if intent is not None:
