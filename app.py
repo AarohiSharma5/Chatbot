@@ -8,10 +8,14 @@ terminal. The terminal loop is replaced by a web server that answers
 one message at a time over HTTP.
 """
 
-from flask import Flask, render_template, request, jsonify
+import random
+
+from flask import Flask, Response, render_template, request, jsonify
 
 # Reuse the logic we already built and tested in chatbot.py.
+import ai_brain
 import chatbot
+import memory_brain
 import storage
 
 app = Flask(__name__)
@@ -61,6 +65,57 @@ def build_reply(user_message):
     return reply
 
 
+def _save_exchange(user_message, reply, intent):
+    """Record one exchange (in memory + database) and update context."""
+    global last_intent
+    history.append({"you": user_message, "bot": reply})
+    storage.add_message(user_message, reply)
+    if intent is not None:
+        last_intent = intent
+
+
+def stream_reply(user_message):
+    """A GENERATOR that yields the reply in pieces, for live streaming.
+
+    Rule-based answers (math, jokes, time...) are instant, so we yield them
+    in one piece. Only the AI fallback is truly streamed, chunk by chunk.
+    """
+    user_name = memory.get("user_name", "friend")
+
+    # Math and rule-based intents are instant -> yield the whole reply once.
+    reply = chatbot.try_calculate(user_message)
+    if reply is not None:
+        yield reply
+        _save_exchange(user_message, reply, "calc")
+        return
+
+    intent = chatbot.get_intent(user_message)
+    if intent == "repeat":
+        intent = last_intent if last_intent not in (None, "repeat") else None
+
+    if intent is not None:
+        reply = chatbot.get_response(intent, user_name, user_message, history)
+        yield reply
+        _save_exchange(user_message, reply, intent)
+        return
+
+    # No rule matched -> stream the AI reply token by token.
+    memories = memory_brain.recall(user_message)
+    full_reply = ""
+    for chunk in ai_brain.stream_ai(user_message, history, memories):
+        full_reply += chunk
+        yield chunk
+
+    if full_reply:
+        memory_brain.remember(user_message)
+    else:
+        # AI unavailable -> fall back to a canned reply.
+        full_reply = random.choice(chatbot.FALLBACK)
+        yield full_reply
+
+    _save_exchange(user_message, full_reply, None)
+
+
 @app.route("/")
 def index():
     """Serve the chat web page."""
@@ -82,6 +137,28 @@ def chat():
 
     reply = build_reply(user_message)
     return jsonify({"reply": reply})
+
+
+@app.route("/chat/stream", methods=["POST"])
+def chat_stream():
+    """Like /chat, but STREAMS the reply back as it's generated.
+
+    We return a streaming Response: Flask keeps the connection open and sends
+    each chunk our generator yields. The browser reads these chunks and
+    appends them to the bubble live, so the answer appears to type itself.
+    """
+    data = request.get_json(silent=True) or {}
+    user_message = (data.get("message") or "").strip()
+
+    if user_message == "":
+        return Response("Say something, or type 'bye'.", mimetype="text/plain")
+
+    return Response(
+        stream_reply(user_message),
+        mimetype="text/plain",
+        # Tell proxies/browsers not to buffer, so chunks arrive immediately.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 if __name__ == "__main__":

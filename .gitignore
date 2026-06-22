@@ -1,3 +1,8 @@
+# --- Node.js dependencies (must NEVER be committed) ---
+# These are downloaded with `npm install`; they're huge and not your code.
+node_modules/
+package-lock.json
+
 # --- Python generated files ---
 # Compiled bytecode cache (auto-created, safe to delete, never commit).
 __pycache__/

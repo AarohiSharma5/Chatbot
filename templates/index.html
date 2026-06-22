@@ -169,7 +169,7 @@
       }, 18);
     }
 
-    // When the form is submitted, send the message to the server.
+    // When the form is submitted, send the message and STREAM the reply.
     formEl.addEventListener("submit", async (event) => {
       event.preventDefault(); // stop the page from reloading
       const text = inputEl.value.trim();
@@ -178,14 +178,28 @@
       addMessage(text, "user");
       inputEl.value = "";
 
-      // Call our Flask /chat endpoint and wait for the reply.
-      const response = await fetch("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
-      });
-      const data = await response.json();
-      typeMessage(data.reply);
+      // Call our streaming endpoint. Instead of waiting for the full reply,
+      // we read the response body as a stream and append each chunk as it
+      // arrives -- so the bot's answer "types itself" live.
+      const bubble = addMessage("", "bot");
+      try {
+        const response = await fetch("/chat/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text }),
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          bubble.textContent += decoder.decode(value, { stream: true });
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+      } catch (err) {
+        bubble.textContent = "Oops, I couldn't reach the server.";
+      }
     });
 
     // Greet the user when the page loads.

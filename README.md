@@ -36,6 +36,24 @@ ollama pull llama3.2
 
 You can change the model in `ai_brain.py` (the `MODEL` variable) to any model you've pulled.
 
+**Optional — use cloud models via OpenRouter (free tier):**
+
+Instead of running a model locally, you can use OpenRouter to reach large cloud models through one API (free models available). No install needed — it's just an HTTP API.
+
+1. Get a free API key at https://openrouter.ai/keys
+2. Set environment variables (the key is read from the environment — never hardcode secrets):
+
+```bash
+export OPENROUTER_API_KEY="sk-or-...your key..."
+export CHATBOT_AI_PROVIDER="openrouter"
+# optional: pick any model from https://openrouter.ai/models (":free" = no cost)
+export OPENROUTER_MODEL="meta-llama/llama-3.3-70b-instruct:free"
+```
+
+3. Run the bot as usual. To switch back to local Ollama, set `CHATBOT_AI_PROVIDER=ollama` (or unset it). If the key is missing or a request fails, the bot falls back gracefully.
+
+> Note: embeddings for long-term memory still use local Ollama (`nomic-embed-text`), independent of which chat provider you choose.
+
 **Optional — long-term memory (semantic / RAG):**
 
 This lets the bot remember *facts* across conversations (not just the last few messages). It needs an embedding model:
@@ -112,6 +130,8 @@ If nothing matches, the bot uses a **fallback** reply. Handling "I don't underst
 | **Web interface** (chat in a browser) | **Client/server** apps: Flask backend + HTML/JS frontend talking over HTTP |
 | **AI fallback** (local model via Ollama) | **Hybrid bots**: rules first, real AI when rules don't match; **system prompts** |
 | **Long-term memory** (embeddings + retrieval) | **RAG**: vectors, **cosine similarity**, semantic search, vector storage |
+| **Pluggable AI providers** (Ollama / OpenRouter) | **Provider abstraction**, env-var **config**, API keys, OpenAI-style APIs |
+| **Streaming replies** (answer types itself, live) | **Streaming responses**, generators, reading a response body chunk-by-chunk |
 
 ---
 
@@ -233,6 +253,31 @@ then generate. We use Ollama for embeddings and SQLite as a hand-built
 vector store — no extra libraries. Needs `ollama pull nomic-embed-text`;
 without it, long-term memory is skipped gracefully.
 
+### Streaming replies (live "typing")
+Normally the server waits for the *whole* AI reply, then sends it. With a
+big model that means staring at an empty screen for seconds. **Streaming**
+sends the answer in small pieces as the model produces them, so it appears
+to type itself — exactly like ChatGPT.
+
+How the pieces fit together:
+
+1. **`ai_brain.stream_ai()`** is a Python **generator**: instead of
+   `return`ing one string, it `yield`s chunks. It talks to the model with
+   `"stream": True` and reads the reply line by line.
+   - **Ollama** streams one JSON object per line (`message.content`).
+   - **OpenRouter** streams *Server-Sent Events* (`data: {...}` lines with
+     `choices[0].delta.content`).
+2. **`/chat/stream`** in `app.py` returns a Flask streaming `Response`. The
+   connection stays open and each yielded chunk is flushed immediately.
+   Rule-based answers (math, jokes...) are instant, so they're yielded in
+   one piece; only the AI fallback is streamed token-by-token.
+3. **The browser** (`index.html`) uses `fetch()` + `response.body.getReader()`
+   to read the stream and append each chunk to the message bubble live.
+
+If the AI provider is offline, `stream_ai()` simply yields nothing and the
+server falls back to a normal canned reply — so streaming never breaks the
+rule-based bot. (The terminal version keeps its own simulated typing effect.)
+
 ---
 
 ## Key vocabulary
@@ -264,9 +309,9 @@ without it, long-term memory is skipped gracefully.
 
 ## Ideas for what to build next
 
-- **Limit history size** — keep only the last N messages (`history[-50:]`).
+- **Limit / summarize history** — keep only the last N messages, or summarize old ones.
 - **Per-user sessions** — so multiple people can chat without sharing memory.
-- **Give the AI memory** — pass recent chat history to the model for real follow-ups.
-- **Streaming replies** — show the AI's answer word-by-word as it generates.
+- **Smarter memory** — have the AI extract *facts* before storing them.
+- **Deploy it online** — host the web app so anyone can use it via a URL.
 
 Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence, fuzzy matching, context, client/server, hybrid AI — still applies. You're building the right foundation. 🚀
