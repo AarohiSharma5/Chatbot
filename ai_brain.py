@@ -58,9 +58,10 @@ OPENROUTER_MODEL = os.environ.get(
 # less-congested backups. (We de-duplicate while preserving order.)
 OPENROUTER_MODELS = list(dict.fromkeys([
     OPENROUTER_MODEL,
-    "meta-llama/llama-3.1-8b-instruct:free",
-    "google/gemma-2-9b-it:free",
-    "mistralai/mistral-7b-instruct:free",
+    "openai/gpt-oss-20b:free",
+    "google/gemma-4-31b-it:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
 ]))
 
 # For long-term memory we turn text into "embeddings" (vectors). That needs
