@@ -54,6 +54,19 @@ def init_db():
         )
         """
     )
+    # Long-term memory: each row is a fact plus its EMBEDDING (a vector of
+    # numbers). We store the vector as JSON text since SQLite has no native
+    # "list" column. This little table is our hand-built "vector store".
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS memories (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            text      TEXT NOT NULL,
+            embedding TEXT NOT NULL,
+            created   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -107,6 +120,33 @@ def add_message(you, bot):
     conn.execute("INSERT INTO messages (you, bot) VALUES (?, ?)", (you, bot))
     conn.commit()
     conn.close()
+
+
+def add_memory(text, embedding):
+    """Store a long-term memory: the text plus its embedding vector.
+
+    The embedding (a list of floats) is saved as JSON text via json.dumps.
+    """
+    conn = _connect()
+    conn.execute(
+        "INSERT INTO memories (text, embedding) VALUES (?, ?)",
+        (text, json.dumps(embedding)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_all_memories():
+    """Return every stored memory as a list of (text, embedding) pairs.
+
+    json.loads turns the saved JSON text back into a Python list of floats.
+    """
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT text, embedding FROM memories ORDER BY id")
+    memories = [(text, json.loads(emb)) for (text, emb) in cursor.fetchall()]
+    conn.close()
+    return memories
 
 
 def _migrate_from_json(json_file="memory.json"):

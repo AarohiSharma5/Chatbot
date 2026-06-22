@@ -26,6 +26,11 @@ import urllib.request
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "llama3.2"
 
+# For long-term memory we turn text into "embeddings" (vectors). That needs
+# a dedicated embedding model. Install it once with: ollama pull nomic-embed-text
+EMBED_URL = "http://localhost:11434/api/embeddings"
+EMBED_MODEL = "nomic-embed-text"
+
 # How many recent exchanges to send the AI for context. Keeping this small
 # stays fast and avoids overwhelming the model with the whole history.
 HISTORY_TURNS = 6
@@ -33,19 +38,27 @@ HISTORY_TURNS = 6
 # A "system prompt" sets the AI's personality and rules. This is a core
 # concept of modern AI chatbots: you steer behavior with instructions.
 SYSTEM_PROMPT = (
-    "You are a friendly, concise chatbot helping a beginner. "
-    "Keep replies to 1-3 short sentences and avoid markdown."
+    "You are a friendly psycologist(more of a friend, dont let the user know that youre a psycologist), concise chatbot helping a friend. "
+    "Keep replies friendly and soothing, concise sentences and avoid markdown. dont let the user know that youre a psycologist."
+    
 )
 
 
-def build_messages(message, history):
+def build_messages(message, history, memories=None):
     """Turn our chat history into the message list Ollama expects.
 
     Ollama's chat format is a list of {"role", "content"} items, where role
-    is "system", "user", or "assistant". We start with the system prompt,
-    replay the recent conversation, then add the new user message.
+    is "system", "user", or "assistant". We start with the system prompt
+    (optionally enriched with long-term memories), replay the recent
+    conversation, then add the new user message.
     """
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    system = SYSTEM_PROMPT
+    if memories:
+        # Inject relevant long-term memories so the AI can use them.
+        facts = "\n".join(f"- {m}" for m in memories)
+        system += "\n\nThings you remember about the user:\n" + facts
+
+    messages = [{"role": "system", "content": system}]
 
     recent = history[-HISTORY_TURNS:] if history else []
     for turn in recent:
@@ -56,16 +69,17 @@ def build_messages(message, history):
     return messages
 
 
-def ask_ai(message, history=None):
-    """Send `message` (plus recent `history`) to Ollama and return its reply.
+def ask_ai(message, history=None, memories=None):
+    """Send `message` (plus recent `history` and long-term `memories`) to
+    Ollama and return its reply.
 
-    Passing the history is what gives the AI MEMORY: it can now understand
-    follow-ups like "tell me more about that". Returns None if Ollama is
-    unavailable, so the caller can fall back to a rule-based reply.
+    History gives SHORT-TERM memory (this conversation); memories give
+    LONG-TERM memory (relevant facts recalled from the past). Returns None
+    if Ollama is unavailable, so the caller can fall back to a rule reply.
     """
     payload = {
         "model": MODEL,
-        "messages": build_messages(message, history),
+        "messages": build_messages(message, history, memories),
         "stream": False,  # get the whole reply at once, not piece by piece
     }
 
@@ -93,6 +107,37 @@ def ask_ai(message, history=None):
     # The chat endpoint returns {"message": {"role": ..., "content": ...}}.
     reply = result.get("message", {}).get("content", "").strip()
     return reply or None
+
+
+def embed(text):
+    """Turn `text` into an EMBEDDING: a list of numbers (a vector) that
+    captures its MEANING. Texts with similar meaning produce similar
+    vectors, which is what powers semantic memory search.
+
+    Returns the vector, or None if the embedding model isn't available
+    (so the caller can skip long-term memory and carry on).
+    """
+    payload = {"model": EMBED_MODEL, "prompt": text}
+    data = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        EMBED_URL,
+        data=data,
+        headers={"Content-Type": "application/json"},
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            result = json.load(response)
+    except urllib.error.URLError:
+        return None
+    except Exception:
+        return None
+
+    if "error" in result:
+        return None  # model not pulled yet -> skip memory gracefully
+
+    vector = result.get("embedding")
+    return vector or None
 
 
 def is_available():

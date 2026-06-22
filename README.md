@@ -36,6 +36,16 @@ ollama pull llama3.2
 
 You can change the model in `ai_brain.py` (the `MODEL` variable) to any model you've pulled.
 
+**Optional — long-term memory (semantic / RAG):**
+
+This lets the bot remember *facts* across conversations (not just the last few messages). It needs an embedding model:
+
+```bash
+ollama pull nomic-embed-text
+```
+
+Once that's installed, open-ended things you tell the bot get stored as **embeddings** in the database, and relevant ones are automatically recalled later — even sessions afterward. Without the embedding model, the bot simply skips long-term memory and works exactly as before.
+
 ## Files in this project
 
 | File | What it's for |
@@ -43,6 +53,7 @@ You can change the model in `ai_brain.py` (the `MODEL` variable) to any model yo
 | `chatbot.py` | The program logic / "brain" (how the bot thinks). |
 | `knowledge.json` | The bot's "knowledge" — keywords and responses (what it knows). |
 | `storage.py` | The storage layer — saves memory in a SQLite database (`chatbot.db`). |
+| `memory_brain.py` | Long-term memory: embeddings + similarity search (mini RAG). |
 | `chatbot.db` | Created automatically. The SQLite database (your name + chat history). |
 | `memory.json` | Legacy file. Auto-migrated into the database on first run. |
 | `app.py` | The web server (Flask). Reuses the brain from `chatbot.py`. |
@@ -100,6 +111,7 @@ If nothing matches, the bot uses a **fallback** reply. Handling "I don't underst
 | **Context** (`another` repeats the last request) | Tracking the previous turn — the basis of conversation flow |
 | **Web interface** (chat in a browser) | **Client/server** apps: Flask backend + HTML/JS frontend talking over HTTP |
 | **AI fallback** (local model via Ollama) | **Hybrid bots**: rules first, real AI when rules don't match; **system prompts** |
+| **Long-term memory** (embeddings + retrieval) | **RAG**: vectors, **cosine similarity**, semantic search, vector storage |
 
 ---
 
@@ -200,6 +212,27 @@ You: why is the sky blue -> no rule -> AI fallback "Because sunlight scatters...
 idea). A **system prompt** shapes the AI's personality. If Ollama isn't
 running, `ask_ai()` returns `None` and the bot uses a canned fallback.
 
+### Long-term memory (embeddings + RAG)
+Short-term memory (history) only covers the last few messages. Long-term
+memory (`memory_brain.py`) remembers *facts* across sessions:
+
+1. **remember** — `embed()` turns your message into a vector (via Ollama)
+   and stores it in the `memories` table.
+2. **recall** — a new message is embedded too, then compared to every
+   stored memory with **cosine similarity**; the closest in *meaning* are
+   injected into the AI's system prompt.
+
+```
+You (Mon):  "I'm learning Python and prefer short answers"   -> stored
+You (Tue):  "how should you explain things to me?"
+            -> recalls the Monday fact -> AI tailors its answer
+```
+
+This is **RAG (Retrieval-Augmented Generation)**: retrieve relevant facts,
+then generate. We use Ollama for embeddings and SQLite as a hand-built
+vector store — no extra libraries. Needs `ollama pull nomic-embed-text`;
+without it, long-term memory is skipped gracefully.
+
 ---
 
 ## Key vocabulary
@@ -222,6 +255,10 @@ running, `ask_ai()` returns `None` and the bot uses a canned fallback.
 | **Database / SQL** | Tables, rows, `INSERT`/`SELECT`; a serverless DB (SQLite). |
 | **Storage layer** | Hiding storage details so backends can be swapped. |
 | **SQL injection** | Why query values use `?` placeholders, never string formatting. |
+| **Embedding** | A vector of numbers capturing a text's *meaning*. |
+| **Cosine similarity** | Measuring how close two vectors (meanings) are. |
+| **RAG** | Retrieve relevant info, then let the AI generate using it. |
+| **Vector store** | Where embeddings live (here, a SQLite table). |
 
 ---
 

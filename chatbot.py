@@ -15,8 +15,9 @@ import re
 import string
 import time
 
-import ai_brain  # optional AI upgrade (used only as a smart fallback)
-import storage   # where the bot's memory is saved (SQLite database)
+import ai_brain      # optional AI upgrade (used only as a smart fallback)
+import memory_brain  # long-term memory (embeddings + retrieval)
+import storage       # where the bot's memory is saved (SQLite database)
 
 
 # ---------------------------------------------------------------------------
@@ -163,11 +164,16 @@ def get_response(intent, user_name, message="", history=None):
     `history` is the recent conversation, given to the AI for context.
     """
     if intent is None:
-        # HYBRID BRAIN: no rule matched, so ask the local AI model, passing
-        # recent history so it can handle follow-ups. If it's not running,
-        # ask_ai() returns None and we use a canned fallback.
-        ai_reply = ai_brain.ask_ai(message, history)
+        # HYBRID BRAIN: no rule matched, so ask the local AI model.
+        # First RECALL any long-term memories relevant to this message, so
+        # the AI can use facts from past conversations.
+        memories = memory_brain.recall(message)
+
+        # Pass short-term history AND long-term memories to the model.
+        ai_reply = ai_brain.ask_ai(message, history, memories)
         if ai_reply:
+            # REMEMBER this message for the future (semantic long-term memory).
+            memory_brain.remember(message)
             return ai_reply
         return random.choice(FALLBACK)
 
