@@ -171,9 +171,15 @@ def main():
     # never met this user before.
     user_name = memory.get("user_name")
 
+    # Load the saved chat history (a list of past exchanges).
+    # The second argument to .get() is the DEFAULT: if there's no history
+    # yet, we start with an empty list [] instead of None.
+    history = memory.get("history", [])
+
     if user_name:
         # We've met before: the file remembered the name across restarts!
-        print(f"ChatBot: Welcome back, {user_name}!\n")
+        print(f"ChatBot: Welcome back, {user_name}!")
+        print(f"ChatBot: We've exchanged {len(history)} messages before.\n")
     else:
         # First time: ask for the name and SAVE it for next time.
         user_name = input("ChatBot: What's your name?\nYou: ").strip()
@@ -191,7 +197,16 @@ def main():
         # 3. Print the reply.
         print("ChatBot:", reply)
 
-        # 4. Stop the loop if the user said goodbye.
+        # 4. Record this exchange in the history list. Each entry is a small
+        #    dictionary holding what the user said and how we replied.
+        history.append({"you": user_message, "bot": reply})
+
+        # 5. Save the updated history to disk after every turn, so nothing
+        #    is lost even if the program closes unexpectedly.
+        memory["history"] = history
+        save_memory(memory)
+
+        # 6. Stop the loop if the user said goodbye.
         if get_intent(user_message) == "goodbye":
             break
 
