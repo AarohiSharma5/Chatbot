@@ -1,0 +1,49 @@
+{
+  "keywords": {
+    "greeting": ["hello", "hi", "hey", "good morning", "good evening"],
+    "goodbye": ["bye", "goodbye", "see you", "exit", "quit"],
+    "thanks": ["thanks", "thank you", "thx"],
+    "how_are_you": ["how are you", "how's it going", "how are u"],
+    "name": ["your name", "who are you", "what are you"],
+    "ask_my_name": ["my name", "remember my name", "who am i"],
+    "time": ["time", "date", "day", "what time", "what day"],
+    "joke": ["joke", "make me laugh", "funny", "tell me something funny"]
+  },
+  "responses": {
+    "greeting": [
+      "Hello! How can I help you today?",
+      "Hi there! What's on your mind?",
+      "Hey! Nice to see you."
+    ],
+    "goodbye": [
+      "Goodbye! Have a great day.",
+      "See you later!",
+      "Bye! Come back anytime."
+    ],
+    "thanks": [
+      "You're welcome!",
+      "Anytime!",
+      "Happy to help."
+    ],
+    "how_are_you": [
+      "I'm just a program, but I'm doing great! How about you?",
+      "Running smoothly, thanks for asking!"
+    ],
+    "name": [
+      "I'm ChatBot, your friendly assistant.",
+      "You can call me ChatBot."
+    ],
+    "joke": [
+      "Why do programmers prefer dark mode? Because light attracts bugs!",
+      "Why did the developer go broke? Because he used up all his cache.",
+      "I told my computer I needed a break, and it said 'No problem, I'll go to sleep.'",
+      "Why was the function sad after a party? It didn't get called.",
+      "There are 10 kinds of people: those who understand binary and those who don't."
+    ]
+  },
+  "fallback": [
+    "Sorry, I didn't quite understand that.",
+    "Hmm, I'm not sure how to respond to that yet.",
+    "Could you rephrase that for me?"
+  ]
+}

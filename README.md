@@ -1,6 +1,6 @@
 # My First Chatbot 🤖
 
-A simple, **rule-based** chatbot written in pure Python. No libraries to install, no AI APIs — just the core ideas so you can understand exactly how a chatbot works.
+A simple, **rule-based** chatbot written in pure Python. No external libraries to install — just the core ideas so you can understand exactly how a chatbot works, built up feature by feature.
 
 ## How to run it
 
@@ -10,7 +10,17 @@ Open a terminal in this folder and run:
 python3 chatbot.py
 ```
 
-Then type messages and press Enter. Try things like `hello`, `how are you`, `what's your name`, `thanks`, and `bye`.
+Then type messages and press Enter. Try things like `hello`, `how are you`, `what time is it`, `tell me a joke`, `what is 5 + 3`, `what is my name`, and `bye`.
+
+## Files in this project
+
+| File | What it's for |
+|------|---------------|
+| `chatbot.py` | The program logic (how the bot thinks). |
+| `knowledge.json` | The bot's "knowledge" — keywords and responses (what it knows). |
+| `memory.json` | Created automatically. Stores your name + chat history between runs. |
+
+> Deleting `memory.json` makes the bot "forget" you. Editing `knowledge.json` teaches it new words/replies **without touching the code**.
 
 ---
 
@@ -18,60 +28,77 @@ Then type messages and press Enter. Try things like `hello`, `how are you`, `wha
 
 Every chatbot, from this tiny one to ChatGPT, is built from the same 4 building blocks:
 
-### 1. Input — listening to the user
-The bot reads a message from the user. In our code that's:
+1. **Input** — read a message from the user (`input(...)`).
+2. **Understanding** — map the message to an **intent** (the user's goal), using keyword matching. This is a basic form of **NLU (Natural Language Understanding)**.
+3. **Response** — pick what to say back based on the intent.
+4. **Conversation loop** — repeat *read → understand → respond* until the user leaves.
 
-```python
-user_message = input("You: ")
-```
-
-### 2. Understanding — figuring out what the user *wants*
-This is the most important part. The bot tries to map the message to an **intent** (the user's goal).
-
-- `"hi"`, `"hello"`, `"hey"` → intent: **greeting**
-- `"bye"`, `"see you"` → intent: **goodbye**
-
-Our bot does this with simple **keyword matching**: it looks for known words in the message. This is a basic form of **NLU (Natural Language Understanding)**.
-
-> Real AI chatbots replace this step with machine learning models that understand meaning, not just keywords — but the *goal* is identical: turn a sentence into an intent.
-
-### 3. Response — deciding what to say back
-Once the bot knows the intent, it picks a reply. We store replies in a dictionary and pick one at random so it feels less repetitive:
-
-```python
-RESPONSES = {
-    "greeting": ["Hello!", "Hi there!", "Hey!"],
-    ...
-}
-```
-
-### 4. The conversation loop — keep going until done
-A chatbot is just this cycle repeated:
-
-```
-read input → understand → respond → repeat
-```
-
-That's the `while True:` loop in `main()`. It keeps chatting until you say "bye".
+If nothing matches, the bot uses a **fallback** reply. Handling "I don't understand" gracefully is a key part of good chatbot design.
 
 ---
 
-## What happens when you type a message
+## Features (and the concepts each one teaches)
 
-```
-You type:  "Hello there!"
-   │
-   ▼
-get_intent()  →  finds the word "hello"  →  intent = "greeting"
-   │
-   ▼
-get_response()  →  picks a random greeting reply
-   │
-   ▼
-ChatBot: "Hi there! What's on your mind?"
+### Level 1 — Beginner
+
+| Feature | Concept you learn |
+|---|---|
+| Keyword → intent → response | The core chatbot pipeline |
+| **Whole-word matching** | **Tokenization** — splitting text into words so `"this"` doesn't match `"hi"` |
+| **Remember the user's name** | **State/memory** — a variable that lives across the conversation |
+| **Tell the time/date** | Using another **module** (`datetime`) + dynamic replies |
+| **Tell a random joke** | Reusing `random` with bigger response lists |
+| **Clean exit** | `break`, `continue`, and program flow |
+
+### Level 2 — Intermediate
+
+| Feature | Concept you learn |
+|---|---|
+| **Save name + history to a file** | **Persistence** — data that survives restarts (`json`, file read/write) |
+| **Conversation history log** | A growing **list of dictionaries** |
+| **Load responses from `knowledge.json`** | **Separating data from code** — change behavior by editing data, not logic |
+| **Intent scoring** | Pick the *best* intent by counting keyword matches, not the first match |
+| **Simple calculator** | Parsing numbers from text with a **regular expression** (`re`) |
+| **Typing effect** | Loops + `time.sleep` for nicer UX |
+
+---
+
+## How the trickier parts work
+
+### Tokenization (whole-word matching)
+We split the message into words and strip punctuation, then check whole words:
+
+```python
+words = [word.strip(string.punctuation) for word in text.split()]
+# single-word keyword must be a WHOLE word; phrases are matched in the full text
 ```
 
-If no keyword matches, the bot uses a **fallback** reply ("Sorry, I didn't understand"). Handling the "I don't know" case gracefully is a key part of good chatbot design.
+This stops `"this"` (which contains the letters `hi`) from triggering a greeting.
+
+### Intent scoring
+Instead of returning the first match, we count how many keywords match each intent and choose the highest:
+
+```python
+return max(scores, key=scores.get)  # the intent with the most matches
+```
+
+### Memory & persistence
+The bot's memory is a dictionary saved to `memory.json`:
+
+```json
+{ "user_name": "Aarohi", "history": [ { "you": "hello", "bot": "Hi there!" } ] }
+```
+
+`json.dump` writes it; `json.load` reads it back next time. That's why the bot greets you by name even after you close it.
+
+### Calculator (regex)
+A regular expression finds `number operator number` inside a sentence:
+
+```python
+pattern = r"(\d+(?:\.\d+)?)\s*([+\-*/])\s*(\d+(?:\.\d+)?)"
+```
+
+If found, we do the math; if not, the bot falls back to normal replies.
 
 ---
 
@@ -79,23 +106,22 @@ If no keyword matches, the bot uses a **fallback** reply ("Sorry, I didn't under
 
 | Term | Meaning |
 |------|---------|
-| **Intent** | What the user wants (greet, say bye, ask a question). |
-| **Keyword matching** | Detecting intent by looking for specific words. |
+| **Intent** | What the user wants (greet, ask the time, do math). |
+| **Tokenization** | Splitting text into individual words ("tokens"). |
+| **State / memory** | Information the bot keeps during (and across) a conversation. |
+| **Persistence** | Saving data so it survives the program closing. |
 | **Fallback** | The reply used when the bot doesn't understand. |
-| **Conversation loop** | The read → respond → repeat cycle. |
 | **NLU** | Natural Language Understanding — turning text into meaning. |
+| **Regex** | A pattern language for finding text (used by the calculator). |
 
 ---
 
-## Make it your own (try these!)
+## Ideas for what to build next (Level 3)
 
-1. **Add a new intent.** For example, teach it to respond to "tell me a joke".
-   - Add keywords in `KEYWORDS` and replies in `RESPONSES`.
-2. **Give it memory.** Ask the user's name and use it in replies.
-3. **Add the time.** Make it answer "what time is it?" using Python's `datetime`.
+- **Synonyms & typo tolerance** ("helo" → "hello") — string similarity.
+- **Context** — remember the *previous* question so follow-ups make sense. This is the heart of real conversation flow.
+- **Limit history size** — keep only the last N messages (`history[-50:]`).
+- **A web interface** — chat in a browser using Flask/FastAPI.
+- **Connect to a real AI model** (e.g. the OpenAI API) — real NLU and the modern approach.
 
-When you're comfortable with all of this, the natural next steps are:
-- Using a library like **ChatterBot**, or
-- Connecting to an AI model (like the OpenAI API) for real "understanding".
-
-But everything you learn here — intents, responses, fallbacks, the loop — still applies. You're building the right foundation. 🚀
+Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence — still applies. You're building the right foundation. 🚀
