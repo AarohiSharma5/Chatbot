@@ -20,8 +20,15 @@ import urllib.request
 # Where Ollama listens, and which model to use. After installing Ollama,
 # run `ollama pull llama3.2` once to download this model. You can swap in
 # any model you've pulled (e.g. "qwen2.5:3b", "phi3", "mistral").
-OLLAMA_URL = "http://localhost:11434/api/generate"
+#
+# We use the /api/chat endpoint (not /api/generate) because it accepts a
+# LIST of past messages -- that's how we give the AI conversation memory.
+OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "llama3.2"
+
+# How many recent exchanges to send the AI for context. Keeping this small
+# stays fast and avoids overwhelming the model with the whole history.
+HISTORY_TURNS = 6
 
 # A "system prompt" sets the AI's personality and rules. This is a core
 # concept of modern AI chatbots: you steer behavior with instructions.
@@ -31,16 +38,34 @@ SYSTEM_PROMPT = (
 )
 
 
-def ask_ai(message):
-    """Send `message` to the local Ollama model and return its reply.
+def build_messages(message, history):
+    """Turn our chat history into the message list Ollama expects.
 
-    Returns the reply text, or None if Ollama is unavailable (so the
-    caller can fall back to a normal rule-based reply).
+    Ollama's chat format is a list of {"role", "content"} items, where role
+    is "system", "user", or "assistant". We start with the system prompt,
+    replay the recent conversation, then add the new user message.
+    """
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    recent = history[-HISTORY_TURNS:] if history else []
+    for turn in recent:
+        messages.append({"role": "user", "content": turn["you"]})
+        messages.append({"role": "assistant", "content": turn["bot"]})
+
+    messages.append({"role": "user", "content": message})
+    return messages
+
+
+def ask_ai(message, history=None):
+    """Send `message` (plus recent `history`) to Ollama and return its reply.
+
+    Passing the history is what gives the AI MEMORY: it can now understand
+    follow-ups like "tell me more about that". Returns None if Ollama is
+    unavailable, so the caller can fall back to a rule-based reply.
     """
     payload = {
         "model": MODEL,
-        "prompt": message,
-        "system": SYSTEM_PROMPT,
+        "messages": build_messages(message, history),
         "stream": False,  # get the whole reply at once, not piece by piece
     }
 
@@ -65,7 +90,8 @@ def ask_ai(message):
     if "error" in result:
         return None
 
-    reply = result.get("response", "").strip()
+    # The chat endpoint returns {"message": {"role": ..., "content": ...}}.
+    reply = result.get("message", {}).get("content", "").strip()
     return reply or None
 
 
