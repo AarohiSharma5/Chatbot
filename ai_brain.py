@@ -52,6 +52,17 @@ OPENROUTER_MODEL = os.environ.get(
     "OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"
 )
 
+# Free models are shared and often "rate-limited upstream" (HTTP 429). So we
+# keep a CHAIN of free models: if the first is busy, we automatically try the
+# next. Your chosen OPENROUTER_MODEL goes first; the rest are smaller, usually
+# less-congested backups. (We de-duplicate while preserving order.)
+OPENROUTER_MODELS = list(dict.fromkeys([
+    OPENROUTER_MODEL,
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "google/gemma-2-9b-it:free",
+    "mistralai/mistral-7b-instruct:free",
+]))
+
 # For long-term memory we turn text into "embeddings" (vectors). That needs
 # a dedicated embedding model. Install it once with: ollama pull nomic-embed-text
 EMBED_URL = "http://localhost:11434/api/embeddings"
@@ -163,27 +174,30 @@ def _ask_ollama(messages):
 
 
 def _ask_openrouter(messages):
-    """Get a reply from a cloud model via OpenRouter."""
+    """Get a reply from a cloud model via OpenRouter, trying each model in the
+    chain until one succeeds (free models are often rate-limited)."""
     if not OPENROUTER_API_KEY:
         _log("OPENROUTER_API_KEY is not set -> using rule-based fallback")
         return None
 
-    result = _post_json(
-        OPENROUTER_URL,
-        {"model": OPENROUTER_MODEL, "messages": messages},
-        {"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-    )
-    if result is None:
-        return None
-    if "error" in result:
-        _log(f"OpenRouter returned error: {str(result['error'])[:300]}")
-        return None
-    # OpenRouter (OpenAI-style) returns {"choices": [{"message": {"content"}}]}.
-    choices = result.get("choices")
-    if not choices:
-        return None
-    reply = choices[0].get("message", {}).get("content", "").strip()
-    return reply or None
+    for model in OPENROUTER_MODELS:
+        result = _post_json(
+            OPENROUTER_URL,
+            {"model": model, "messages": messages},
+            {"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+        )
+        if result is None:
+            continue  # error already logged -> try the next model
+        if "error" in result:
+            _log(f"{model} error: {str(result['error'])[:200]} -> trying next")
+            continue
+        # OpenRouter (OpenAI-style) returns {"choices":[{"message":{"content"}}]}.
+        choices = result.get("choices")
+        if choices:
+            reply = choices[0].get("message", {}).get("content", "").strip()
+            if reply:
+                return reply
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -238,53 +252,59 @@ def _stream_ollama(messages):
 
 
 def _stream_openrouter(messages):
-    """Stream from OpenRouter. It uses Server-Sent Events: lines that look
-    like `data: {json}`, with each piece in choices[0].delta.content."""
+    """Stream from OpenRouter, trying each model in the chain until one
+    accepts the request (free models are often rate-limited with HTTP 429).
+
+    It uses Server-Sent Events: lines like `data: {json}`, with each piece in
+    choices[0].delta.content."""
     if not OPENROUTER_API_KEY:
         _log("OPENROUTER_API_KEY is not set -> using rule-based fallback")
         return
 
-    payload = {"model": OPENROUTER_MODEL, "messages": messages, "stream": True}
-    data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        OPENROUTER_URL,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        },
-    )
+    for model in OPENROUTER_MODELS:
+        payload = {"model": model, "messages": messages, "stream": True}
+        data = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            OPENROUTER_URL,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            },
+        )
 
-    try:
-        response = urllib.request.urlopen(request, timeout=120)
-    except urllib.error.HTTPError as error:
         try:
-            body = error.read().decode("utf-8")[:300]
-        except Exception:
-            body = "<no body>"
-        _log(f"OpenRouter stream HTTP {error.code}: {body}")
-        return
-    except Exception as error:
-        _log(f"OpenRouter stream error: {error}")
-        return
-
-    try:
-        for raw_line in response:
-            line = raw_line.decode("utf-8").strip()
-            if not line or not line.startswith("data:"):
-                continue
-            payload_text = line[len("data:"):].strip()
-            if payload_text == "[DONE]":
-                break
+            response = urllib.request.urlopen(request, timeout=120)
+        except urllib.error.HTTPError as error:
             try:
-                obj = json.loads(payload_text)
-            except json.JSONDecodeError:
-                continue
-            delta = obj.get("choices", [{}])[0].get("delta", {}).get("content", "")
-            if delta:
-                yield delta
-    finally:
-        response.close()
+                body = error.read().decode("utf-8")[:200]
+            except Exception:
+                body = "<no body>"
+            _log(f"{model} stream HTTP {error.code}: {body} -> trying next")
+            continue  # this model is busy -> try the next one
+        except Exception as error:
+            _log(f"{model} stream error: {error} -> trying next")
+            continue
+
+        # This model accepted the request: stream its reply and stop here.
+        try:
+            for raw_line in response:
+                line = raw_line.decode("utf-8").strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                payload_text = line[len("data:"):].strip()
+                if payload_text == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(payload_text)
+                except json.JSONDecodeError:
+                    continue
+                delta = obj.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                if delta:
+                    yield delta
+        finally:
+            response.close()
+        return  # done streaming from a working model
 
 
 def embed(text):
