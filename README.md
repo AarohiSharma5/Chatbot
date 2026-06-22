@@ -129,7 +129,7 @@ If nothing matches, the bot uses a **fallback** reply. Handling "I don't underst
 | **Context** (`another` repeats the last request) | Tracking the previous turn — the basis of conversation flow |
 | **Web interface** (chat in a browser) | **Client/server** apps: Flask backend + HTML/JS frontend talking over HTTP |
 | **AI fallback** (local model via Ollama) | **Hybrid bots**: rules first, real AI when rules don't match; **system prompts** |
-| **Long-term memory** (embeddings + retrieval) | **RAG**: vectors, **cosine similarity**, semantic search, vector storage |
+| **Long-term memory** (fact extraction + retrieval) | **RAG**: vectors, **cosine similarity**, semantic search, using the LLM to extract structured data |
 | **Pluggable AI providers** (Ollama / OpenRouter) | **Provider abstraction**, env-var **config**, API keys, OpenAI-style APIs |
 | **Streaming replies** (answer types itself, live) | **Streaming responses**, generators, reading a response body chunk-by-chunk |
 
@@ -232,21 +232,32 @@ You: why is the sky blue -> no rule -> AI fallback "Because sunlight scatters...
 idea). A **system prompt** shapes the AI's personality. If Ollama isn't
 running, `ask_ai()` returns `None` and the bot uses a canned fallback.
 
-### Long-term memory (embeddings + RAG)
+### Long-term memory (embeddings + RAG + fact extraction)
 Short-term memory (history) only covers the last few messages. Long-term
 memory (`memory_brain.py`) remembers *facts* across sessions:
 
-1. **remember** — `embed()` turns your message into a vector (via Ollama)
-   and stores it in the `memories` table.
-2. **recall** — a new message is embedded too, then compared to every
-   stored memory with **cosine similarity**; the closest in *meaning* are
+1. **extract facts** — instead of storing the raw message (much of which is
+   noise), we use the LLM as a *tool*: `extract_facts()` asks it to read the
+   message and write back only durable facts ("User is learning Python"),
+   or `NONE` if there's nothing worth keeping.
+2. **remember** — each new fact is turned into a vector by `embed()` (via
+   Ollama) and stored in the `memories` table. Identical facts are skipped
+   (`memory_exists()`) so we don't pile up duplicates.
+3. **recall** — a new message is embedded too, then compared to every
+   stored fact with **cosine similarity**; the closest in *meaning* are
    injected into the AI's system prompt.
 
 ```
-You (Mon):  "I'm learning Python and prefer short answers"   -> stored
-You (Tue):  "how should you explain things to me?"
-            -> recalls the Monday fact -> AI tailors its answer
+You:  "I'm learning Python and prefer short answers"
+      -> extracted: "User is learning Python", "User prefers short answers"
+You:  "ok thanks" / "what time is it?"   -> nothing stored (just noise)
+Later: "how should you explain things to me?"
+      -> recalls the stored facts -> AI tailors its answer
 ```
+
+Using a model to turn messy text into clean structured data (here, a list of
+facts) is a hugely common real-world pattern -- the same trick powers tagging,
+summarizing, and data extraction pipelines.
 
 This is **RAG (Retrieval-Augmented Generation)**: retrieve relevant facts,
 then generate. We use Ollama for embeddings and SQLite as a hand-built
@@ -311,7 +322,7 @@ rule-based bot. (The terminal version keeps its own simulated typing effect.)
 
 - **Limit / summarize history** — keep only the last N messages, or summarize old ones.
 - **Per-user sessions** — so multiple people can chat without sharing memory.
-- **Smarter memory** — have the AI extract *facts* before storing them.
+- **A "memory viewer"** — a page that lists every fact the bot has stored about you.
 - **Deploy it online** — host the web app so anyone can use it via a URL.
 
 Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence, fuzzy matching, context, client/server, hybrid AI — still applies. You're building the right foundation. 🚀

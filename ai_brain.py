@@ -105,6 +105,19 @@ def ask_ai(message, history=None, memories=None):
     return _ask_ollama(messages)
 
 
+def chat_once(messages):
+    """Send a custom `messages` list to the AI and return its text reply.
+
+    Unlike ask_ai(), this does NOT add the chatbot's personality, history,
+    or memories -- you provide the EXACT messages. It's a low-level helper
+    for internal tasks where we use the model as a tool (e.g. pulling facts
+    out of a sentence). Returns None if the provider is unavailable.
+    """
+    if PROVIDER == "openrouter":
+        return _ask_openrouter(messages)
+    return _ask_ollama(messages)
+
+
 def _post_json(url, payload, headers):
     """Helper: POST a JSON `payload` to `url` and return the parsed JSON.
 

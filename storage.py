@@ -136,6 +136,20 @@ def add_memory(text, embedding):
     conn.close()
 
 
+def memory_exists(text):
+    """Return True if we've already stored this exact fact.
+
+    Used to avoid saving the same fact twice (e.g. the user mentions they
+    like coffee in several messages -> we keep just one copy).
+    """
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM memories WHERE text = ? LIMIT 1", (text,))
+    found = cursor.fetchone() is not None
+    conn.close()
+    return found
+
+
 def get_all_memories():
     """Return every stored memory as a list of (text, embedding) pairs.
 
