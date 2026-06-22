@@ -16,6 +16,8 @@ import re
 import string
 import time
 
+import ai_brain  # optional AI upgrade (used only as a smart fallback)
+
 
 # ---------------------------------------------------------------------------
 # STEP 1: The "knowledge" of the bot (loaded from a separate data file).
@@ -170,12 +172,18 @@ def try_calculate(message):
 # ---------------------------------------------------------------------------
 # STEP 3: Producing a response.
 # ---------------------------------------------------------------------------
-def get_response(intent, user_name):
+def get_response(intent, user_name, message=""):
     """Decide what the bot should say back, based on the detected intent.
 
     `user_name` (the bot's "memory") lets us personalise some replies.
+    `message` is the raw user text, used only for the AI fallback.
     """
     if intent is None:
+        # HYBRID BRAIN: no rule matched, so ask the local AI model. If it's
+        # not running, ask_ai() returns None and we use a canned fallback.
+        ai_reply = ai_brain.ask_ai(message)
+        if ai_reply:
+            return ai_reply
         return random.choice(FALLBACK)
 
     # Special case: the user is asking us to recall their name.
@@ -267,7 +275,7 @@ def main():
                 else:
                     intent = last_intent
 
-            reply = get_response(intent, user_name)
+            reply = get_response(intent, user_name, user_message)
 
         # 4. "Type out" the reply.
         slow_print(f"ChatBot: {reply}")

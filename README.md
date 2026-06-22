@@ -21,6 +21,21 @@ python3 app.py
 
 Then open **http://127.0.0.1:5000** in your browser. Press `Ctrl+C` in the terminal to stop the server.
 
+**Optional — add a real AI brain (free, local, via Ollama):**
+
+The bot works fine without this. But you can give it real "understanding" as a smart fallback (used only when the rules don't match). It's free and runs entirely on your computer.
+
+1. Install Ollama from https://ollama.com/download (or `brew install ollama` on a Mac).
+2. Download a small model (one time, a few GB):
+
+```bash
+ollama pull llama3.2
+```
+
+3. Make sure Ollama is running (`ollama serve`, or just open the Ollama app), then start the chatbot as usual. Now questions the rules don't recognise (e.g. "what's the capital of France?") get answered by the AI. If Ollama isn't running, the bot quietly falls back to its canned reply — nothing breaks.
+
+You can change the model in `ai_brain.py` (the `MODEL` variable) to any model you've pulled.
+
 ## Files in this project
 
 | File | What it's for |
@@ -30,6 +45,7 @@ Then open **http://127.0.0.1:5000** in your browser. Press `Ctrl+C` in the termi
 | `memory.json` | Created automatically. Stores your name + chat history between runs. |
 | `app.py` | The web server (Flask). Reuses the brain from `chatbot.py`. |
 | `templates/index.html` | The web chat page (HTML + CSS + JavaScript). |
+| `ai_brain.py` | Optional AI upgrade: talks to a local Ollama model. |
 | `requirements.txt` | The list of external packages to install (just Flask). |
 
 > Deleting `memory.json` makes the bot "forget" you. Editing `knowledge.json` teaches it new words/replies **without touching the code**.
@@ -80,6 +96,7 @@ If nothing matches, the bot uses a **fallback** reply. Handling "I don't underst
 | **Typo tolerance** (`helo` → `hello`) | **Fuzzy matching** / string similarity with `difflib` |
 | **Context** (`another` repeats the last request) | Tracking the previous turn — the basis of conversation flow |
 | **Web interface** (chat in a browser) | **Client/server** apps: Flask backend + HTML/JS frontend talking over HTTP |
+| **AI fallback** (local model via Ollama) | **Hybrid bots**: rules first, real AI when rules don't match; **system prompts** |
 
 ---
 
@@ -151,6 +168,21 @@ The browser (`templates/index.html`) sends your message to the Flask server
 as JSON, the server runs the same logic, and the reply is sent back and
 "typed out" on screen.
 
+### Hybrid AI brain (Ollama)
+The bot tries its **rules first** (math, time, jokes, memory). Only when no
+rule matches does it ask the AI model — so fast, reliable rules stay in
+control and the AI handles open-ended questions:
+
+```
+You: what is 5 + 3      -> rule (calculator)     "The answer is 8."
+You: what time is it     -> rule (time)            "It's 05:20 PM ..."
+You: why is the sky blue -> no rule -> AI fallback "Because sunlight scatters..."
+```
+
+`ai_brain.py` sends the message to Ollama over HTTP (the same client/server
+idea). A **system prompt** shapes the AI's personality. If Ollama isn't
+running, `ask_ai()` returns `None` and the bot uses a canned fallback.
+
 ---
 
 ## Key vocabulary
@@ -168,6 +200,8 @@ as JSON, the server runs the same logic, and the reply is sent back and
 | **Context** | Using the previous turn to interpret the current one. |
 | **Client/server** | A frontend (browser) and backend (Flask) talking over HTTP. |
 | **API endpoint** | A URL like `/chat` that takes JSON in and sends JSON out. |
+| **Hybrid bot** | Rules for known tasks + an AI model for everything else. |
+| **System prompt** | Instructions that shape an AI model's behavior. |
 
 ---
 
@@ -175,6 +209,7 @@ as JSON, the server runs the same logic, and the reply is sent back and
 
 - **Limit history size** — keep only the last N messages (`history[-50:]`).
 - **Per-user sessions** — so multiple people can chat without sharing memory.
-- **Connect to a real AI model** (e.g. the OpenAI API) — real NLU and the modern approach.
+- **Give the AI memory** — pass recent chat history to the model for real follow-ups.
+- **Streaming replies** — show the AI's answer word-by-word as it generates.
 
-Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence, fuzzy matching, context, client/server — still applies. You're building the right foundation. 🚀
+Everything you've learned here — intents, responses, fallbacks, the loop, memory, persistence, fuzzy matching, context, client/server, hybrid AI — still applies. You're building the right foundation. 🚀

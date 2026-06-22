@@ -45,7 +45,7 @@ def build_reply(user_message):
             else:
                 intent = last_intent
 
-        reply = chatbot.get_response(intent, user_name)
+        reply = chatbot.get_response(intent, user_name, user_message)
 
     # 3. Save this exchange to the same memory file the terminal bot uses.
     history.append({"you": user_message, "bot": reply})
