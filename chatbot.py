@@ -7,6 +7,8 @@ This is how the very first chatbots worked, and it's the best way to
 understand the core ideas before moving on to AI/machine-learning bots.
 """
 
+import json
+import os
 import random
 import string
 
@@ -125,6 +127,35 @@ def get_response(message, user_name):
 
 
 # ---------------------------------------------------------------------------
+# PERSISTENCE: saving memory to a file so it survives after the program ends.
+#
+# A normal variable disappears when the program closes. To REMEMBER things
+# between runs, we write them to a file on disk and read them back next time.
+# We use JSON, a simple text format for storing data like dictionaries.
+# ---------------------------------------------------------------------------
+MEMORY_FILE = "memory.json"
+
+
+def load_memory():
+    """Read saved memory from the file. Returns a dictionary."""
+    # If the file doesn't exist yet (e.g. the very first run), start empty.
+    if not os.path.exists(MEMORY_FILE):
+        return {}
+
+    # "with open(...)" safely opens the file and closes it automatically.
+    # "r" means we're opening it to READ.
+    with open(MEMORY_FILE, "r") as file:
+        return json.load(file)  # turn the file's JSON text back into a dict
+
+
+def save_memory(memory):
+    """Write the memory dictionary to the file as JSON."""
+    # "w" means we're opening it to WRITE (this overwrites the old contents).
+    with open(MEMORY_FILE, "w") as file:
+        json.dump(memory, file)  # turn the dict into JSON text and store it
+
+
+# ---------------------------------------------------------------------------
 # STEP 4: The conversation loop.
 #
 # A chatbot is really just a loop: read input -> respond -> repeat,
@@ -133,11 +164,22 @@ def get_response(message, user_name):
 def main():
     print("ChatBot: Hi! I'm a simple chatbot. Type 'bye' to leave.")
 
-    # MEMORY (state): we ask once and store the answer in a variable.
-    # Because `user_name` is created here, OUTSIDE the loop, it keeps its
-    # value for the whole conversation, every time around the loop.
-    user_name = input("ChatBot: What's your name?\nYou: ").strip()
-    print(f"ChatBot: Nice to meet you, {user_name}!\n")
+    # Load whatever we saved during previous runs.
+    memory = load_memory()
+
+    # memory.get("user_name") returns the saved name, or None if we've
+    # never met this user before.
+    user_name = memory.get("user_name")
+
+    if user_name:
+        # We've met before: the file remembered the name across restarts!
+        print(f"ChatBot: Welcome back, {user_name}!\n")
+    else:
+        # First time: ask for the name and SAVE it for next time.
+        user_name = input("ChatBot: What's your name?\nYou: ").strip()
+        memory["user_name"] = user_name
+        save_memory(memory)
+        print(f"ChatBot: Nice to meet you, {user_name}! I'll remember you.\n")
 
     while True:
         # 1. Read what the user typed.
