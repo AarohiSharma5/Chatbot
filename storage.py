@@ -228,6 +228,13 @@ def get_or_create_user(user_id):
         )
 
 
+def user_exists(user_id):
+    """Return True if a row for this user id exists in the users table."""
+    with _cursor() as cur:
+        cur.execute(_q("SELECT 1 FROM users WHERE id = ? LIMIT 1"), (user_id,))
+        return cur.fetchone() is not None
+
+
 def username_exists(username):
     """Return True if the username is already taken."""
     with _cursor() as cur:

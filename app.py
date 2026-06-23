@@ -67,11 +67,21 @@ def current_user_id():
 
 
 def login_required(view):
-    """Decorator: bounce anyone who isn't logged in to the login page."""
+    """Decorator: bounce anyone who isn't logged in to the login page.
+
+    We also defend against STALE cookies: if the session points at a user id
+    that no longer exists (e.g. a leftover anonymous id from before accounts,
+    or data wiped on the old ephemeral disk), we clear it and send them to
+    log in -- otherwise creating their data would hit a foreign-key error.
+    """
 
     @wraps(view)
     def wrapped(*args, **kwargs):
-        if not current_user_id():
+        uid = current_user_id()
+        if not uid:
+            return redirect(url_for("login"))
+        if not storage.user_exists(uid):
+            session.clear()
             return redirect(url_for("login"))
         return view(*args, **kwargs)
 
