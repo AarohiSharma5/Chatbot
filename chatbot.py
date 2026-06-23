@@ -233,24 +233,25 @@ def detect_name(message):
 # ---------------------------------------------------------------------------
 # STEP 3: Producing a response.
 # ---------------------------------------------------------------------------
-def get_response(intent, user_name, message="", history=None):
+def get_response(intent, user_name, message="", history=None, user_id="legacy"):
     """Decide what the bot should say back, based on the detected intent.
 
     `user_name` (the bot's "memory") lets us personalise some replies.
     `message` is the raw user text, used only for the AI fallback.
     `history` is the recent conversation, given to the AI for context.
+    `user_id` scopes long-term memory to the current person.
     """
     if intent is None:
-        # HYBRID BRAIN: no rule matched, so ask the local AI model.
-        # First RECALL any long-term memories relevant to this message, so
-        # the AI can use facts from past conversations.
-        memories = memory_brain.recall(message)
+        # HYBRID BRAIN: no rule matched, so ask the AI model.
+        # First RECALL any of THIS user's long-term memories relevant to this
+        # message, so the AI can use facts from past conversations.
+        memories = memory_brain.recall(user_id, message)
 
         # Pass short-term history AND long-term memories to the model.
         ai_reply = ai_brain.ask_ai(message, history, memories)
         if ai_reply:
             # REMEMBER this message for the future (semantic long-term memory).
-            memory_brain.remember(message)
+            memory_brain.remember(user_id, message)
             return ai_reply
         return random.choice(FALLBACK)
 
@@ -302,8 +303,13 @@ def slow_print(text, delay=0.02):
 def main():
     print("ChatBot: Hi! I'm a simple chatbot. Type 'bye' to leave.")
 
+    # The terminal bot is a single person, so it always uses one fixed id.
+    # (The web app gives each browser its own id instead.)
+    user_id = storage.LEGACY_USER
+    storage.get_or_create_user(user_id)
+
     # Load whatever we saved during previous runs (from the database).
-    memory = storage.load_memory()
+    memory = storage.load_memory(user_id)
     user_name = memory.get("user_name")
 
     # The chat history (a list of past exchanges). We keep it in memory too,
@@ -315,7 +321,7 @@ def main():
         print(f"ChatBot: We've exchanged {len(history)} messages before.\n")
     else:
         user_name = input("ChatBot: What's your name?\nYou: ").strip()
-        storage.save_user_name(user_name)
+        storage.save_user_name(user_id, user_name)
         print(f"ChatBot: Nice to meet you, {user_name}! I'll remember you.\n")
 
     # CONTEXT: remember the intent of the PREVIOUS turn. This lets the bot
@@ -336,9 +342,9 @@ def main():
         new_name = detect_name(user_message)
         if new_name and new_name != user_name:
             user_name = new_name
-            storage.save_user_name(user_name)
+            storage.save_user_name(user_id, user_name)
             slow_print(f"ChatBot: Nice to meet you, {user_name}! I'll remember that.")
-            storage.add_message(user_message, f"Nice to meet you, {user_name}!")
+            storage.add_message(user_id, user_message, f"Nice to meet you, {user_name}!")
             continue
 
         # 2. Try math FIRST. If the message is a calculation, answer it.
@@ -356,7 +362,7 @@ def main():
                 else:
                     intent = last_intent
 
-            reply = get_response(intent, user_name, user_message, history)
+            reply = get_response(intent, user_name, user_message, history, user_id)
 
         # 4. "Type out" the reply.
         slow_print(f"ChatBot: {reply}")
@@ -364,7 +370,7 @@ def main():
         # 5. Record this exchange: keep it in memory (for AI context) AND
         #    insert it as a new row in the database.
         history.append({"you": user_message, "bot": reply})
-        storage.add_message(user_message, reply)
+        storage.add_message(user_id, user_message, reply)
 
         # 6. Remember this turn's intent for next time (so "another" works).
         if intent is not None:

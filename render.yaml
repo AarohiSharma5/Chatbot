@@ -17,5 +17,10 @@ services:
       # Secret: leave blank here and paste your key in the Render dashboard.
       - key: OPENROUTER_API_KEY
         sync: false
+      # Signs the session cookie that identifies each browser. Render
+      # auto-generates a stable random value so logins/sessions survive
+      # restarts. Never commit a real secret to the repo.
+      - key: SECRET_KEY
+        generateValue: true
       - key: PYTHON_VERSION
         value: "3.12.3"

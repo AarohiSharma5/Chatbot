@@ -88,12 +88,12 @@ def extract_facts(text):
     return facts
 
 
-def remember(text):
-    """Extract durable facts from `text` and store each as a long-term memory.
+def remember(user_id, text):
+    """Extract durable facts from `text` and store each as a long-term memory
+    FOR THIS USER. Returns True if at least one new fact was saved.
 
-    Returns True if at least one new fact was saved. Skips silently when the
-    AI or embedding model is unavailable, or when there's nothing worth
-    remembering -- so it never breaks the rest of the chatbot.
+    Skips silently when the AI or embedding model is unavailable, or when
+    there's nothing worth remembering -- so it never breaks the chatbot.
     """
     facts = extract_facts(text)
     if not facts:
@@ -101,24 +101,24 @@ def remember(text):
 
     stored = 0
     for fact in facts:
-        if storage.memory_exists(fact):
-            continue  # we already know this -> don't duplicate
+        if storage.memory_exists(user_id, fact):
+            continue  # this user already knows this -> don't duplicate
         vector = ai_brain.embed(fact)
         if vector is None:
             return stored > 0  # embedding model not installed -> stop
-        storage.add_memory(fact, vector)
+        storage.add_memory(user_id, fact, vector)
         stored += 1
     return stored > 0
 
 
-def recall(query, k=TOP_K):
-    """Return up to `k` stored memories most similar in meaning to `query`."""
+def recall(user_id, query, k=TOP_K):
+    """Return up to `k` of THIS user's memories most similar to `query`."""
     query_vector = ai_brain.embed(query)
     if query_vector is None:
         return []  # no embeddings available -> no long-term recall
 
     scored = []
-    for text, vector in storage.get_all_memories():
+    for text, vector in storage.get_all_memories(user_id):
         similarity = cosine_similarity(query_vector, vector)
         if similarity >= MIN_SIMILARITY:
             scored.append((similarity, text))
