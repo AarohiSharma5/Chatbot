@@ -169,24 +169,40 @@ function speak(text) {
   window.speechSynthesis.speak(u);
 }
 
-// Two simple SVG faces. The .mouth element is what the CSS animates while the
-// avatar is "talking".
+// Friendly SVG faces. The .mouth element is what the CSS animates while the
+// avatar is "talking"; .eye elements blink via CSS.
 function faceSvg(gender) {
-  const hair = gender === "female" ? "#7a4a2b" : "#5a3a22";
-  const longHair = gender === "female"
-    ? '<path d="M14 30 Q14 56 24 58 L24 34 Z M50 30 Q50 56 40 58 L40 34 Z" fill="' + hair + '"/>'
-    : "";
+  if (gender === "female") {
+    return (
+      '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">' +
+      '<defs><radialGradient id="skinF" cx="50%" cy="42%" r="60%">' +
+      '<stop offset="0%" stop-color="#fbe6cc"/><stop offset="100%" stop-color="#f1cda3"/>' +
+      "</radialGradient></defs>" +
+      '<path d="M11 32 Q11 9 32 9 Q53 9 53 32 L53 52 Q53 57 47 57 L17 57 Q11 57 11 52 Z" fill="#7a4a2b"/>' +
+      '<path d="M11 34 Q9 44 13 54 L20 54 Q15 44 16 34 Z" fill="#6b3f23"/>' +
+      '<path d="M53 34 Q55 44 51 54 L44 54 Q49 44 48 34 Z" fill="#6b3f23"/>' +
+      '<ellipse cx="32" cy="34" rx="16" ry="18" fill="url(#skinF)"/>' +
+      '<path d="M16 30 Q17 14 32 13 Q47 14 48 30 Q42 23 32 23 Q22 23 16 30 Z" fill="#854f2c"/>' +
+      '<ellipse class="eye" cx="25" cy="34" rx="2.4" ry="3.1" fill="#4a2f1c"/>' +
+      '<ellipse class="eye" cx="39" cy="34" rx="2.4" ry="3.1" fill="#4a2f1c"/>' +
+      '<circle cx="21" cy="40" r="3" fill="#ef9a9a" opacity="0.55"/>' +
+      '<circle cx="43" cy="40" r="3" fill="#ef9a9a" opacity="0.55"/>' +
+      '<ellipse class="mouth" cx="32" cy="45" rx="4.2" ry="2.6" fill="#c2453f"/>' +
+      "</svg>"
+    );
+  }
   return (
     '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">' +
-    longHair +
-    '<circle cx="32" cy="32" r="20" fill="#f1d9b5"/>' +
-    '<path d="M12 28 Q32 4 52 28 Q52 16 32 12 Q12 16 12 28 Z" fill="' + hair + '"/>' +
-    '<circle cx="25" cy="30" r="2.6" fill="#3a2418"/>' +
-    '<circle cx="39" cy="30" r="2.6" fill="#3a2418"/>' +
-    '<ellipse class="mouth" cx="32" cy="40" rx="5" ry="3" fill="#8a3b2f"/>' +
-    (gender === "female"
-      ? '<circle cx="22" cy="37" r="2.5" fill="#e58a8a" opacity="0.5"/><circle cx="42" cy="37" r="2.5" fill="#e58a8a" opacity="0.5"/>'
-      : "") +
+    '<defs><radialGradient id="skinM" cx="50%" cy="42%" r="60%">' +
+    '<stop offset="0%" stop-color="#f3d4ab"/><stop offset="100%" stop-color="#e3b483"/>' +
+    "</radialGradient></defs>" +
+    '<ellipse cx="32" cy="36" rx="16" ry="17" fill="url(#skinM)"/>' +
+    '<path d="M15 31 Q15 12 32 12 Q49 12 49 31 Q46 21 38 20 Q34 25 26 20 Q18 21 15 31 Z" fill="#4a3120"/>' +
+    '<rect x="21" y="30" width="7" height="2.2" rx="1.1" fill="#4a3120"/>' +
+    '<rect x="36" y="30" width="7" height="2.2" rx="1.1" fill="#4a3120"/>' +
+    '<circle class="eye" cx="25" cy="35" r="2.4" fill="#4a2f1c"/>' +
+    '<circle class="eye" cx="39" cy="35" r="2.4" fill="#4a2f1c"/>' +
+    '<ellipse class="mouth" cx="32" cy="46" rx="4.2" ry="2.3" fill="#9c4a3a"/>' +
     "</svg>"
   );
 }

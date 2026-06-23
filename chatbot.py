@@ -140,13 +140,19 @@ def get_intent(message):
     # max(..., key=scores.get) means "the key whose value is largest".
     best = max(scores, key=scores.get)
 
-    # Guard: if the "winner" is just chit-chat but the message is clearly a
-    # task (or a long sentence where the keyword is incidental), hand it to the
-    # AI instead of replying "Hi there!".
+    # Guard: chit-chat replies (hello/bye/thanks) should only fire when the
+    # message actually OPENS with that word -- otherwise the keyword is just
+    # buried in a real request like "say hello in japanese" or "write hello in
+    # rust", which the AI should handle. We also bail if the message reads like
+    # a task ("write code...", "how do I...").
     if best in CASUAL_INTENTS:
         if looks_like_task(message):
             return None
-        if len(words) >= 5 and scores[best] <= 1:
+        first = words[0] if words else ""
+        starts_with_keyword = first in KEYWORDS[best] or any(
+            text.startswith(keyword) for keyword in KEYWORDS[best]
+        )
+        if not starts_with_keyword:
             return None
 
     return best

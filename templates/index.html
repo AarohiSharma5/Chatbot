@@ -270,16 +270,23 @@
     /* Optional talking avatar (represents the chosen voice). Hidden until a
        male/female voice is picked; its mouth animates while speaking. */
     .avatar {
-      width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
-      display: none; overflow: hidden; background: #e9d8bf;
+      width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+      display: none; overflow: hidden; padding: 2px;
+      background: linear-gradient(135deg, #d4b483, #8a6d4f);
+      box-shadow: 0 2px 6px rgba(20, 12, 8, 0.35);
     }
     .avatar.show { display: inline-block; }
-    .avatar svg { width: 100%; height: 100%; display: block; }
-    .avatar.talking { box-shadow: 0 0 0 3px rgba(212, 180, 131, 0.55); animation: avatarPulse 0.7s infinite; }
-    .avatar .mouth { transform-origin: 50% 62%; }
-    .avatar.talking .mouth { animation: talk 0.26s infinite alternate; }
-    @keyframes talk { from { transform: scaleY(0.35); } to { transform: scaleY(1.25); } }
-    @keyframes avatarPulse { 0%,100% { box-shadow: 0 0 0 2px rgba(212,180,131,0.5); } 50% { box-shadow: 0 0 0 5px rgba(212,180,131,0.25); } }
+    .avatar svg { width: 100%; height: 100%; display: block; background: #f6ecd9; border-radius: 50%; }
+    .avatar.talking { animation: avatarPulse 0.8s infinite; }
+    .avatar .mouth { transform-origin: 50% 72%; }
+    .avatar.talking .mouth { animation: talk 0.24s infinite alternate; }
+    .avatar .eye { transform-origin: center; animation: blink 4.5s infinite; }
+    @keyframes talk { from { transform: scaleY(0.3); } to { transform: scaleY(1.3); } }
+    @keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.1); } }
+    @keyframes avatarPulse {
+      0%, 100% { box-shadow: 0 0 0 2px rgba(212,180,131,0.55), 0 2px 6px rgba(20,12,8,0.35); }
+      50% { box-shadow: 0 0 0 6px rgba(212,180,131,0.2), 0 2px 6px rgba(20,12,8,0.35); }
+    }
 
     /* Hamburger lives in the header but only shows on small screens. */
     .menu-toggle { display: none; }
