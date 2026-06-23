@@ -76,21 +76,51 @@ HISTORY_TURNS = 6
 # A "system prompt" sets the AI's personality and rules. This is a core
 # concept of modern AI chatbots: you steer behavior with instructions.
 SYSTEM_PROMPT = (
-    "You are a friendly psycologist(more of a friend, dont let the user know that youre a psycologist), concise chatbot helping a friend. "
-    "Keep replies friendly and soothing, concise sentences and avoid markdown. dont let the user know that youre a psycologist."
-    
+    "You are a warm, friendly chatbot helping a friend. Keep replies kind, "
+    "supportive, and fairly concise. You may use simple markdown (bold, "
+    "lists, code blocks) when it makes the answer clearer."
 )
 
+# PERSONAS let each conversation have its own personality. The user picks one
+# per thread; we feed the matching instructions to the model as its system
+# prompt. This is just prompt-engineering: same model, different "character".
+PERSONAS = {
+    "friend": SYSTEM_PROMPT,
+    "tutor": (
+        "You are a patient tutor. Explain concepts step by step in plain "
+        "language, give small examples, and check understanding. Use markdown "
+        "headings, lists, and code blocks where helpful."
+    ),
+    "coder": (
+        "You are an expert programming assistant. Be precise and practical. "
+        "Prefer working code in fenced code blocks, note edge cases, and keep "
+        "prose short."
+    ),
+    "concise": (
+        "You are a concise assistant. Answer in as few words as possible -- "
+        "ideally one or two sentences. No fluff, no preamble."
+    ),
+}
+DEFAULT_PERSONA = "friend"
 
-def build_messages(message, history, memories=None):
-    """Turn our chat history into the message list Ollama expects.
 
-    Ollama's chat format is a list of {"role", "content"} items, where role
-    is "system", "user", or "assistant". We start with the system prompt
-    (optionally enriched with long-term memories), replay the recent
-    conversation, then add the new user message.
+def persona_prompt(key):
+    """Return the system prompt for a persona key (falling back to default)."""
+    return PERSONAS.get(key or DEFAULT_PERSONA, PERSONAS[DEFAULT_PERSONA])
+
+
+def build_messages(message, history, memories=None, system_prompt=None, context=None):
+    """Turn our chat history into the message list the model expects.
+
+    The format is a list of {"role", "content"} items, where role is
+    "system", "user", or "assistant". We start with the system prompt
+    (optionally a persona, plus long-term memories and document excerpts),
+    replay the recent conversation, then add the new user message.
     """
-    system = SYSTEM_PROMPT
+    system = system_prompt or SYSTEM_PROMPT
+    if context:
+        # Excerpts retrieved from the user's uploaded documents (doc RAG).
+        system += "\n\nUse these excerpts from the user's documents to answer:\n" + context
     if memories:
         # Inject relevant long-term memories so the AI can use them.
         facts = "\n".join(f"- {m}" for m in memories)
@@ -107,16 +137,9 @@ def build_messages(message, history, memories=None):
     return messages
 
 
-def ask_ai(message, history=None, memories=None):
-    """Send `message` (plus recent `history` and long-term `memories`) to
-    the configured AI provider and return its reply.
-
-    History gives SHORT-TERM memory (this conversation); memories give
-    LONG-TERM memory (relevant facts recalled from the past). Returns None
-    if the provider is unavailable, so the caller can fall back to a rule
-    reply. We build the messages ONCE, then dispatch to the chosen provider.
-    """
-    messages = build_messages(message, history, memories)
+def ask_ai(message, history=None, memories=None, system_prompt=None, context=None):
+    """Send `message` (plus context) to the configured AI and return its reply."""
+    messages = build_messages(message, history, memories, system_prompt, context)
 
     if PROVIDER == "openrouter":
         return _ask_openrouter(messages)
@@ -207,13 +230,13 @@ def _ask_openrouter(messages):
 # a GENERATOR -- it `yield`s chunks one at a time, which the web app forwards
 # to the browser so the answer appears to "type" live, like ChatGPT.
 # ---------------------------------------------------------------------------
-def stream_ai(message, history=None, memories=None):
+def stream_ai(message, history=None, memories=None, system_prompt=None, context=None):
     """Yield the AI reply chunk-by-chunk from the configured provider.
 
     Yields nothing if the provider is unavailable (the caller then shows a
     normal fallback message).
     """
-    messages = build_messages(message, history, memories)
+    messages = build_messages(message, history, memories, system_prompt, context)
     if PROVIDER == "openrouter":
         yield from _stream_openrouter(messages)
     else:
@@ -308,13 +331,46 @@ def _stream_openrouter(messages):
         return  # done streaming from a working model
 
 
+# Dimensions for the LOCAL embedding fallback (below). Any fixed size works;
+# 384 is a reasonable balance between detail and speed.
+LOCAL_EMBED_DIM = 384
+
+
+def _local_embed(text):
+    """A tiny, dependency-free embedding used when no embedding model is
+    available (e.g. in the cloud, where there's no local Ollama).
+
+    It's the classic "hashing trick": we split the text into words, hash each
+    word into one of LOCAL_EMBED_DIM buckets, and count how often each bucket
+    is hit. Then we normalise to unit length. It captures word OVERLAP rather
+    than deep meaning -- weaker than a real model, but it works everywhere and
+    keeps semantic-ish search (and document RAG) functioning in production.
+    """
+    import hashlib
+    import math
+    import re
+
+    vector = [0.0] * LOCAL_EMBED_DIM
+    for word in re.findall(r"[a-z0-9]+", text.lower()):
+        # md5 is a STABLE hash (unlike Python's built-in hash(), which is
+        # randomised per process) -- so stored vectors stay valid after a
+        # restart and still match freshly-embedded queries.
+        bucket = int(hashlib.md5(word.encode()).hexdigest(), 16) % LOCAL_EMBED_DIM
+        vector[bucket] += 1.0
+
+    length = math.sqrt(sum(v * v for v in vector))
+    if length == 0:
+        return None
+    return [v / length for v in vector]
+
+
 def embed(text):
     """Turn `text` into an EMBEDDING: a list of numbers (a vector) that
     captures its MEANING. Texts with similar meaning produce similar
-    vectors, which is what powers semantic memory search.
+    vectors, which is what powers semantic memory and document search.
 
-    Returns the vector, or None if the embedding model isn't available
-    (so the caller can skip long-term memory and carry on).
+    Tries the real embedding model (Ollama) first; if it isn't reachable,
+    falls back to a simple local embedding so memory/RAG still work.
     """
     payload = {"model": EMBED_MODEL, "prompt": text}
     data = json.dumps(payload).encode("utf-8")
@@ -327,16 +383,14 @@ def embed(text):
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             result = json.load(response)
-    except urllib.error.URLError:
-        return None
+        if "error" not in result:
+            vector = result.get("embedding")
+            if vector:
+                return vector
     except Exception:
-        return None
+        pass  # model unreachable -> fall through to the local fallback
 
-    if "error" in result:
-        return None  # model not pulled yet -> skip memory gracefully
-
-    vector = result.get("embedding")
-    return vector or None
+    return _local_embed(text)
 
 
 def is_available():

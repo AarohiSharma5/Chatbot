@@ -14,6 +14,8 @@ This version adds:
     abused into burning our AI quota.
 """
 
+import io
+import json
 import os
 import time
 import uuid
@@ -36,6 +38,12 @@ import ai_brain
 import chatbot
 import memory_brain
 import storage
+import tools
+
+# Cap an uploaded file so a huge document can't exhaust memory.
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024  # 2 MB
+DOC_CHUNK_CHARS = 800               # characters per document chunk
+DOC_TOP_K = 4                       # how many chunks to feed the AI
 
 app = Flask(__name__)
 
@@ -134,6 +142,27 @@ def _save_exchange(user_id, thread_id, user_message, reply, intent):
     state["awaiting_name"] = intent == "ask_my_name" and not storage.get_user_name(user_id)
 
 
+def _doc_context(user_id, thread_id, query):
+    """Retrieve the most relevant chunks of this thread's uploaded docs.
+
+    Same idea as long-term memory: embed the question, compare against each
+    stored chunk's embedding (cosine similarity), and return the closest few
+    joined together -- to be injected into the AI prompt (RAG).
+    """
+    if not storage.thread_has_docs(user_id, thread_id):
+        return None
+    query_vec = ai_brain.embed(query)
+    if query_vec is None:
+        return None
+
+    scored = []
+    for text, vec in storage.get_doc_chunks(user_id, thread_id):
+        scored.append((memory_brain.cosine_similarity(query_vec, vec), text))
+    scored.sort(reverse=True)
+    top = [text for (_, text) in scored[:DOC_TOP_K]]
+    return "\n---\n".join(top) if top else None
+
+
 def stream_reply(user_id, thread_id, user_message, history):
     """A GENERATOR that yields the reply in pieces, for live streaming."""
     state = _state(user_id)
@@ -162,10 +191,21 @@ def stream_reply(user_id, thread_id, user_message, history):
         _save_exchange(user_id, thread_id, user_message, reply, intent)
         return
 
-    # No rule matched -> stream the AI reply token by token.
+    # A TOOL might answer better than the model (live weather, a web lookup).
+    tool_reply = tools.try_tool(user_message)
+    if tool_reply:
+        yield tool_reply
+        _save_exchange(user_id, thread_id, user_message, tool_reply, "tool")
+        return
+
+    # No rule/tool matched -> stream the AI reply token by token, steered by
+    # this thread's persona and grounded in any uploaded documents + memories.
+    system_prompt = ai_brain.persona_prompt(storage.get_persona(user_id, thread_id))
+    context = _doc_context(user_id, thread_id, user_message)
     memories = memory_brain.recall(user_id, user_message)
+
     full_reply = ""
-    for chunk in ai_brain.stream_ai(user_message, history, memories):
+    for chunk in ai_brain.stream_ai(user_message, history, memories, system_prompt, context):
         full_reply += chunk
         yield chunk
 
@@ -250,7 +290,12 @@ def index():
     user_id = current_user_id()
     if not storage.list_threads(user_id):
         storage.create_thread(user_id)
-    return render_template("index.html", display_name=storage.get_user_name(user_id))
+    return render_template(
+        "index.html",
+        display_name=storage.get_user_name(user_id),
+        theme=storage.get_theme(user_id) or "light",
+        personas=list(ai_brain.PERSONAS.keys()),
+    )
 
 
 @app.route("/memories")
@@ -323,6 +368,136 @@ def thread_delete(thread_id):
     return ("", 204)
 
 
+@app.route("/threads/<int:thread_id>/persona", methods=["POST"])
+@login_required
+def thread_persona(thread_id):
+    """Set the AI personality for one conversation."""
+    user_id = current_user_id()
+    if not storage.thread_belongs_to(user_id, thread_id):
+        return jsonify({"error": "not found"}), 404
+    persona = (request.get_json(silent=True) or {}).get("persona")
+    if persona in ai_brain.PERSONAS:
+        storage.set_persona(user_id, thread_id, persona)
+    return ("", 204)
+
+
+@app.route("/threads/<int:thread_id>/documents", methods=["GET"])
+@login_required
+def thread_documents(thread_id):
+    """List the files uploaded to a conversation."""
+    user_id = current_user_id()
+    if not storage.thread_belongs_to(user_id, thread_id):
+        return jsonify([])
+    return jsonify(storage.list_documents(user_id, thread_id))
+
+
+@app.route("/threads/<int:thread_id>/upload", methods=["POST"])
+@login_required
+def thread_upload(thread_id):
+    """Accept a PDF/text file, chunk + embed it, and store it for this thread."""
+    user_id = current_user_id()
+    if not storage.thread_belongs_to(user_id, thread_id):
+        return jsonify({"error": "not found"}), 404
+
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return jsonify({"error": "No file provided."}), 400
+
+    raw = file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "File too large (2 MB max)."}), 400
+
+    text = _extract_text(file.filename, raw)
+    if not text.strip():
+        return jsonify({"error": "Couldn't read any text from that file."}), 400
+
+    stored = 0
+    for chunk in _chunk_text(text, DOC_CHUNK_CHARS):
+        vector = ai_brain.embed(chunk)
+        if vector is None:
+            continue
+        storage.add_doc_chunk(user_id, thread_id, file.filename, chunk, vector)
+        stored += 1
+
+    if stored == 0:
+        return jsonify({"error": "Couldn't process that file."}), 400
+    return jsonify({"filename": file.filename, "chunks": stored})
+
+
+@app.route("/threads/<int:thread_id>/export", methods=["GET"])
+@login_required
+def export_thread(thread_id):
+    """Download a conversation as Markdown (default) or JSON."""
+    user_id = current_user_id()
+    if not storage.thread_belongs_to(user_id, thread_id):
+        return ("not found", 404)
+
+    msgs = storage.load_history(user_id, thread_id)
+    if request.args.get("format") == "json":
+        body = json.dumps(msgs, indent=2)
+        resp = Response(body, mimetype="application/json")
+        resp.headers["Content-Disposition"] = f"attachment; filename=conversation_{thread_id}.json"
+        return resp
+
+    lines = [f"# Conversation {thread_id}", ""]
+    for m in msgs:
+        lines.append(f"**You:** {m['you']}")
+        lines.append("")
+        lines.append(f"**Bot:** {m['bot']}")
+        lines.append("")
+    resp = Response("\n".join(lines), mimetype="text/markdown")
+    resp.headers["Content-Disposition"] = f"attachment; filename=conversation_{thread_id}.md"
+    return resp
+
+
+@app.route("/search", methods=["GET"])
+@login_required
+def search():
+    """Find past messages across all of this user's conversations."""
+    query = (request.args.get("q") or "").strip()
+    if not query:
+        return jsonify([])
+    return jsonify(storage.search_messages(current_user_id(), query))
+
+
+@app.route("/theme", methods=["POST"])
+@login_required
+def set_theme():
+    """Persist the user's light/dark theme choice."""
+    theme = (request.get_json(silent=True) or {}).get("theme")
+    if theme in ("light", "dark"):
+        storage.save_theme(current_user_id(), theme)
+    return ("", 204)
+
+
+def _extract_text(filename, raw):
+    """Pull plain text from an uploaded file (PDF via pypdf, else decode)."""
+    if filename.lower().endswith(".pdf"):
+        try:
+            import pypdf
+
+            reader = pypdf.PdfReader(io.BytesIO(raw))
+            return "\n".join((page.extract_text() or "") for page in reader.pages)
+        except Exception:
+            return ""
+    return raw.decode("utf-8", errors="ignore")
+
+
+def _chunk_text(text, size):
+    """Split text into ~`size`-character chunks on word boundaries."""
+    chunks, current = [], ""
+    for word in text.split():
+        if len(current) + len(word) + 1 > size:
+            if current:
+                chunks.append(current)
+            current = word
+        else:
+            current = (current + " " + word).strip()
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 @app.route("/chat/stream", methods=["POST"])
 @login_required
 def chat_stream():
@@ -331,14 +506,26 @@ def chat_stream():
     data = request.get_json(silent=True) or {}
     user_message = (data.get("message") or "").strip()
     thread_id = data.get("thread_id")
-
-    if user_message == "":
-        return Response("Say something, or type 'bye'.", mimetype="text/plain")
+    regenerate = bool(data.get("regenerate"))
+    edit = bool(data.get("edit"))
 
     # The thread must exist and belong to this user.
     if not thread_id or not storage.thread_belongs_to(user_id, int(thread_id)):
         return Response("That conversation doesn't exist.", status=404, mimetype="text/plain")
     thread_id = int(thread_id)
+
+    # EDIT / REGENERATE redo the last turn: drop it first. Regenerate reuses
+    # the previous question; edit supplies new text.
+    if regenerate:
+        previous = storage.pop_last_exchange(user_id, thread_id)
+        if not previous:
+            return Response("Nothing to regenerate.", status=400, mimetype="text/plain")
+        user_message = previous
+    elif edit:
+        storage.pop_last_exchange(user_id, thread_id)
+
+    if user_message == "":
+        return Response("Say something, or type 'bye'.", mimetype="text/plain")
 
     if not _within_rate_limit(user_id):
         return Response(

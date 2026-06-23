@@ -132,7 +132,25 @@ def init_db():
                 id      {_AUTO_ID},
                 user_id TEXT NOT NULL,
                 title   TEXT NOT NULL DEFAULT 'New chat',
+                persona TEXT NOT NULL DEFAULT 'friend',
                 created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+            """
+        )
+
+        # Chunks of uploaded documents + their embeddings, for "chat with your
+        # docs" (RAG). Scoped to a thread, so each conversation has its own docs.
+        cur.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS doc_chunks (
+                id        {_AUTO_ID},
+                user_id   TEXT NOT NULL,
+                thread_id INTEGER NOT NULL,
+                filename  TEXT NOT NULL,
+                text      TEXT NOT NULL,
+                embedding TEXT NOT NULL,
+                created   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
             """
@@ -173,7 +191,9 @@ def init_db():
     # database's users table may not have the username column yet.
     _ensure_column("users", "username", "TEXT")
     _ensure_column("users", "password_hash", "TEXT")
+    _ensure_column("users", "theme", "TEXT")
     _ensure_column("messages", "thread_id", "INTEGER")
+    _ensure_column("threads", "persona", "TEXT NOT NULL DEFAULT 'friend'")
 
     # One username per account. NULLs are allowed (multiple), so legacy /
     # anonymous rows without a username don't clash.
@@ -289,6 +309,20 @@ def save_user_name(user_id, name):
         )
 
 
+def get_theme(user_id):
+    """Return this user's saved UI theme ('light' or 'dark'), or None."""
+    with _cursor() as cur:
+        cur.execute(_q("SELECT theme FROM users WHERE id = ?"), (user_id,))
+        row = cur.fetchone()
+    return row[0] if row and row[0] else None
+
+
+def save_theme(user_id, theme):
+    """Store the user's preferred theme."""
+    with _cursor() as cur:
+        cur.execute(_q("UPDATE users SET theme = ? WHERE id = ?"), (theme, user_id))
+
+
 # --------------------------------------------------------------------------
 # Threads (multiple conversations per user)
 # --------------------------------------------------------------------------
@@ -307,11 +341,16 @@ def list_threads(user_id):
     """Return this user's conversations, newest first."""
     with _cursor() as cur:
         cur.execute(
-            _q("SELECT id, title, created FROM threads WHERE user_id = ? ORDER BY id DESC"),
+            _q(
+                "SELECT id, title, persona, created FROM threads WHERE user_id = ? ORDER BY id DESC"
+            ),
             (user_id,),
         )
         rows = cur.fetchall()
-    return [{"id": tid, "title": title, "created": str(created)} for (tid, title, created) in rows]
+    return [
+        {"id": tid, "title": title, "persona": persona or "friend", "created": str(created)}
+        for (tid, title, persona, created) in rows
+    ]
 
 
 def thread_belongs_to(user_id, thread_id):
@@ -333,11 +372,35 @@ def rename_thread(user_id, thread_id, title):
         )
 
 
+def get_persona(user_id, thread_id):
+    """Return the persona key for a thread (defaults to 'friend')."""
+    with _cursor() as cur:
+        cur.execute(
+            _q("SELECT persona FROM threads WHERE id = ? AND user_id = ?"),
+            (thread_id, user_id),
+        )
+        row = cur.fetchone()
+    return (row[0] if row and row[0] else "friend")
+
+
+def set_persona(user_id, thread_id, persona):
+    """Set a thread's persona (only if it belongs to this user)."""
+    with _cursor() as cur:
+        cur.execute(
+            _q("UPDATE threads SET persona = ? WHERE id = ? AND user_id = ?"),
+            (persona, thread_id, user_id),
+        )
+
+
 def delete_thread(user_id, thread_id):
-    """Delete a thread and all of its messages (only if owned by this user)."""
+    """Delete a thread plus its messages and documents (if owned by this user)."""
     with _cursor() as cur:
         cur.execute(
             _q("DELETE FROM messages WHERE thread_id = ? AND user_id = ?"),
+            (thread_id, user_id),
+        )
+        cur.execute(
+            _q("DELETE FROM doc_chunks WHERE thread_id = ? AND user_id = ?"),
             (thread_id, user_id),
         )
         cur.execute(
@@ -423,6 +486,110 @@ def add_message(user_id, you, bot, thread_id=None):
             )
 
 
+def pop_last_exchange(user_id, thread_id):
+    """Delete the most recent exchange in a thread and return its user text.
+
+    Used by EDIT and REGENERATE: we remove the last turn so it can be redone
+    (with the same or edited prompt). Returns the deleted 'you' text, or None.
+    """
+    with _cursor() as cur:
+        cur.execute(
+            _q(
+                "SELECT id, you FROM messages WHERE user_id = ? AND thread_id = ? ORDER BY id DESC LIMIT 1"
+            ),
+            (user_id, thread_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        cur.execute(_q("DELETE FROM messages WHERE id = ?"), (row[0],))
+    return row[1]
+
+
+def search_messages(user_id, query, limit=50):
+    """Find this user's messages containing `query` (case-insensitive).
+
+    Returns matches with their thread so the UI can jump to them. This is a
+    plain SQL LIKE search -- simple, and works the same on both engines.
+    """
+    pattern = f"%{query.lower()}%"
+    with _cursor() as cur:
+        cur.execute(
+            _q(
+                """
+                SELECT m.thread_id, t.title, m.you, m.bot
+                FROM messages m
+                JOIN threads t ON t.id = m.thread_id
+                WHERE m.user_id = ?
+                  AND (LOWER(m.you) LIKE ? OR LOWER(m.bot) LIKE ?)
+                ORDER BY m.id DESC
+                LIMIT ?
+                """
+            ),
+            (user_id, pattern, pattern, limit),
+        )
+        rows = cur.fetchall()
+    return [
+        {"thread_id": tid, "title": title, "you": you, "bot": bot}
+        for (tid, title, you, bot) in rows
+    ]
+
+
+# --------------------------------------------------------------------------
+# Documents (uploaded files, chunked + embedded for RAG, scoped to a thread)
+# --------------------------------------------------------------------------
+
+def add_doc_chunk(user_id, thread_id, filename, text, embedding):
+    """Store one chunk of an uploaded document, with its embedding."""
+    with _cursor() as cur:
+        cur.execute(
+            _q(
+                "INSERT INTO doc_chunks (user_id, thread_id, filename, text, embedding) VALUES (?, ?, ?, ?, ?)"
+            ),
+            (user_id, thread_id, filename, text, json.dumps(embedding)),
+        )
+
+
+def get_doc_chunks(user_id, thread_id):
+    """Return (text, embedding) pairs for all docs uploaded to a thread."""
+    with _cursor() as cur:
+        cur.execute(
+            _q(
+                "SELECT text, embedding FROM doc_chunks WHERE user_id = ? AND thread_id = ?"
+            ),
+            (user_id, thread_id),
+        )
+        rows = cur.fetchall()
+    return [(text, json.loads(emb)) for (text, emb) in rows]
+
+
+def list_documents(user_id, thread_id):
+    """Return the distinct filenames uploaded to a thread, with chunk counts."""
+    with _cursor() as cur:
+        cur.execute(
+            _q(
+                """
+                SELECT filename, COUNT(*) FROM doc_chunks
+                WHERE user_id = ? AND thread_id = ?
+                GROUP BY filename ORDER BY MIN(id)
+                """
+            ),
+            (user_id, thread_id),
+        )
+        rows = cur.fetchall()
+    return [{"filename": name, "chunks": n} for (name, n) in rows]
+
+
+def thread_has_docs(user_id, thread_id):
+    """True if this thread has any uploaded document chunks."""
+    with _cursor() as cur:
+        cur.execute(
+            _q("SELECT 1 FROM doc_chunks WHERE user_id = ? AND thread_id = ? LIMIT 1"),
+            (user_id, thread_id),
+        )
+        return cur.fetchone() is not None
+
+
 # --------------------------------------------------------------------------
 # Long-term memory (per user, shared across their threads)
 # --------------------------------------------------------------------------
@@ -485,6 +652,7 @@ def reset_all(user_id):
     with _cursor() as cur:
         cur.execute(_q("DELETE FROM messages WHERE user_id = ?"), (user_id,))
         cur.execute(_q("DELETE FROM memories WHERE user_id = ?"), (user_id,))
+        cur.execute(_q("DELETE FROM doc_chunks WHERE user_id = ?"), (user_id,))
         cur.execute(_q("DELETE FROM threads WHERE user_id = ?"), (user_id,))
         cur.execute(_q("UPDATE users SET name = NULL WHERE id = ?"), (user_id,))
 

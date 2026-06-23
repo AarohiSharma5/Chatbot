@@ -4,18 +4,46 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>My First Chatbot</title>
-
-  <!-- Markdown rendering: marked turns the AI's markdown into HTML, and
-       DOMPurify strips anything unsafe before we put it on the page. -->
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
-
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --bg-grad: linear-gradient(135deg, #2e1c14 0%, #4e342e 55%, #6d4c41 100%);
+      --panel: #faf6ef;
+      --sidebar: #3e2723;
+      --sidebar-text: #e9dcc6;
+      --messages-bg: #efe3cf;
+      --bot-bubble: #e6d3b3;
+      --bot-text: #3c2a21;
+      --input-bg: #f5efe2;
+      --input-field: #fffdf9;
+      --border: #e3d4ba;
+      --header-grad: linear-gradient(135deg, #4e342e 0%, #3e2723 100%);
+      --user-grad: linear-gradient(135deg, #6f4e37 0%, #5a3e2b 100%);
+      --muted: #7a6a58;
+    }
+
+    [data-theme="dark"] {
+      --bg-grad: linear-gradient(135deg, #14100d 0%, #211712 60%, #2c1f17 100%);
+      --panel: #241a14;
+      --sidebar: #1b130f;
+      --sidebar-text: #d8c7ad;
+      --messages-bg: #2a1f18;
+      --bot-bubble: #3a2b21;
+      --bot-text: #ecdcc4;
+      --input-bg: #20160f;
+      --input-field: #2c1f17;
+      --border: #3a2b21;
+      --header-grad: linear-gradient(135deg, #2c1f17 0%, #1b130f 100%);
+      --user-grad: linear-gradient(135deg, #7d5a40 0%, #5a3e2b 100%);
+      --muted: #b79b78;
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: linear-gradient(135deg, #2e1c14 0%, #4e342e 55%, #6d4c41 100%);
+      background: var(--bg-grad);
       min-height: 100vh;
       display: flex;
       align-items: center;
@@ -25,27 +53,26 @@
 
     .app {
       width: 100%;
-      max-width: 880px;
-      height: 660px;
+      max-width: 940px;
+      height: 680px;
       display: flex;
-      background: #faf6ef;
+      background: var(--panel);
       border-radius: 20px;
-      box-shadow: 0 24px 60px rgba(46, 28, 20, 0.45);
+      box-shadow: 0 24px 60px rgba(20, 12, 8, 0.5);
       overflow: hidden;
-      border: 1px solid #e6d8c3;
+      border: 1px solid var(--border);
     }
 
-    /* ---- Sidebar (threads) ---- */
     .sidebar {
-      width: 240px;
+      width: 250px;
       flex-shrink: 0;
-      background: #3e2723;
-      color: #e9dcc6;
+      background: var(--sidebar);
+      color: var(--sidebar-text);
       display: flex;
       flex-direction: column;
     }
 
-    .sidebar__top { padding: 14px; }
+    .sidebar__top { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 
     .sidebar__new {
       width: 100%;
@@ -57,9 +84,20 @@
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.15s;
     }
     .sidebar__new:hover { background: #7d5a40; }
+
+    .sidebar__search {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 10px;
+      border: 1px solid #51372c;
+      background: rgba(0,0,0,0.15);
+      color: var(--sidebar-text);
+      font-size: 13px;
+      outline: none;
+    }
+    .sidebar__search::placeholder { color: #9c8366; }
 
     .sidebar__threads {
       flex: 1;
@@ -74,203 +112,144 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 10px 10px;
+      padding: 10px;
       border-radius: 10px;
       cursor: pointer;
       font-size: 14px;
       color: #d8c7ad;
-      transition: background 0.12s;
     }
     .thread:hover { background: rgba(212, 180, 131, 0.12); }
     .thread.active { background: rgba(212, 180, 131, 0.22); color: #fbf3e2; }
-
-    .thread__title {
-      flex: 1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
+    .thread__title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .thread__del {
-      background: transparent;
-      border: none;
-      color: #b79b78;
-      font-size: 16px;
-      cursor: pointer;
-      opacity: 0;
-      transition: opacity 0.12s, color 0.12s;
-      flex-shrink: 0;
+      background: transparent; border: none; color: #b79b78;
+      font-size: 16px; cursor: pointer; opacity: 0; flex-shrink: 0;
     }
     .thread:hover .thread__del { opacity: 1; }
     .thread__del:hover { color: #f0c7b8; }
 
+    .result {
+      padding: 9px 10px; border-radius: 9px; cursor: pointer;
+      font-size: 13px; color: #d8c7ad; background: rgba(0,0,0,0.12);
+    }
+    .result:hover { background: rgba(212,180,131,0.16); }
+    .result small { color: #9c8366; display: block; margin-bottom: 2px; }
+
     .sidebar__bottom {
-      padding: 12px;
-      border-top: 1px solid #51372c;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+      padding: 12px; border-top: 1px solid #51372c;
+      display: flex; flex-direction: column; gap: 8px;
     }
-
-    .sidebar__bottom a,
-    .sidebar__bottom button {
-      width: 100%;
-      text-align: center;
-      padding: 9px;
-      font-size: 13px;
-      font-family: inherit;
-      border-radius: 10px;
-      border: 1px solid #6d4c41;
-      background: transparent;
-      color: #e6d3b3;
-      text-decoration: none;
-      cursor: pointer;
-      transition: background 0.12s;
+    .sidebar__bottom a, .sidebar__bottom button {
+      width: 100%; text-align: center; padding: 9px; font-size: 13px;
+      font-family: inherit; border-radius: 10px; border: 1px solid #6d4c41;
+      background: transparent; color: #e6d3b3; text-decoration: none; cursor: pointer;
     }
-    .sidebar__bottom a:hover,
-    .sidebar__bottom button:hover { background: rgba(212, 180, 131, 0.15); }
-
+    .sidebar__bottom a:hover, .sidebar__bottom button:hover { background: rgba(212, 180, 131, 0.15); }
     .sidebar__bottom form { margin: 0; }
 
-    /* ---- Chat area ---- */
-    .chat {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
+    .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
     .chat__header {
-      background: linear-gradient(135deg, #4e342e 0%, #3e2723 100%);
+      background: var(--header-grad);
       color: #f3e9d8;
-      padding: 18px 22px;
-      font-weight: 600;
-      font-size: 18px;
-      letter-spacing: 0.3px;
+      padding: 14px 18px;
       display: flex;
       align-items: center;
       gap: 10px;
+      flex-wrap: wrap;
     }
-
     .chat__header .dot {
       width: 10px; height: 10px; border-radius: 50%;
-      background: #d4b483;
-      box-shadow: 0 0 0 3px rgba(212, 180, 131, 0.25);
+      background: #d4b483; box-shadow: 0 0 0 3px rgba(212, 180, 131, 0.25);
     }
+    .chat__header .title { font-weight: 600; font-size: 17px; }
+    .chat__header .spacer { flex: 1; }
+    .chat__header select, .chat__header .hbtn {
+      background: rgba(255,255,255,0.08);
+      color: #f3e9d8;
+      border: 1px solid #6d4c41;
+      border-radius: 18px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .chat__header .hbtn:hover { background: rgba(212,180,131,0.18); }
 
     .chat__messages {
-      flex: 1;
-      padding: 20px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      background: #efe3cf;
+      flex: 1; padding: 20px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 6px;
+      background: var(--messages-bg);
     }
 
+    .turn { display: flex; flex-direction: column; gap: 4px; }
+    .turn--user { align-items: flex-end; }
+    .turn--bot { align-items: flex-start; }
+
     .msg {
-      max-width: 80%;
+      max-width: 82%;
       padding: 10px 14px;
       border-radius: 16px;
       line-height: 1.45;
       font-size: 15px;
       word-wrap: break-word;
-      box-shadow: 0 1px 2px rgba(46, 28, 20, 0.12);
+      box-shadow: 0 1px 2px rgba(20, 12, 8, 0.15);
     }
+    .msg--bot { background: var(--bot-bubble); color: var(--bot-text); border-bottom-left-radius: 4px; }
+    .msg--user { background: var(--user-grad); color: #f5efe2; border-bottom-right-radius: 4px; white-space: pre-wrap; }
 
-    .msg--bot {
-      align-self: flex-start;
-      background: #e6d3b3;
-      color: #3c2a21;
-      border-bottom-left-radius: 4px;
-    }
-
-    .msg--user {
-      align-self: flex-end;
-      background: linear-gradient(135deg, #6f4e37 0%, #5a3e2b 100%);
-      color: #f5efe2;
-      border-bottom-right-radius: 4px;
-      white-space: pre-wrap;
-    }
-
-    /* Markdown elements inside a bot bubble */
     .msg--bot p { margin: 0 0 8px; }
     .msg--bot p:last-child { margin-bottom: 0; }
     .msg--bot ul, .msg--bot ol { margin: 4px 0 8px 20px; }
-    .msg--bot code {
-      background: #d8c2a0;
-      padding: 1px 5px;
-      border-radius: 5px;
-      font-size: 13px;
-    }
-    .msg--bot pre {
-      background: #2e1c14;
-      color: #f3e9d8;
-      padding: 10px 12px;
-      border-radius: 10px;
-      overflow-x: auto;
-      margin: 6px 0;
-    }
+    .msg--bot code { background: rgba(0,0,0,0.12); padding: 1px 5px; border-radius: 5px; font-size: 13px; }
+    .msg--bot pre { background: #2e1c14; color: #f3e9d8; padding: 10px 12px; border-radius: 10px; overflow-x: auto; margin: 6px 0; }
     .msg--bot pre code { background: transparent; padding: 0; color: inherit; }
-    .msg--bot a { color: #6f4e37; }
 
-    .typing-dots span {
-      display: inline-block;
-      animation: blink 1.4s infinite both;
-      font-weight: bold;
+    .actions { display: flex; gap: 10px; padding: 0 4px; opacity: 0; transition: opacity 0.12s; }
+    .turn:hover .actions { opacity: 1; }
+    .actions button {
+      background: transparent; border: none; color: var(--muted);
+      font-size: 12px; cursor: pointer; padding: 0; font-family: inherit;
     }
+    .actions button:hover { color: var(--bot-text); text-decoration: underline; }
+
+    .typing-dots span { display: inline-block; animation: blink 1.4s infinite both; font-weight: bold; }
     .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
     .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes blink {
-      0%, 80%, 100% { opacity: 0.2; }
-      40% { opacity: 1; }
+    @keyframes blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+    .docs { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 20px 0; background: var(--messages-bg); }
+    .docchip {
+      font-size: 12px; background: var(--bot-bubble); color: var(--bot-text);
+      padding: 3px 9px; border-radius: 12px;
     }
 
-    .chat__input {
-      display: flex;
-      gap: 8px;
-      padding: 14px;
-      border-top: 1px solid #e3d4ba;
-      background: #f5efe2;
+    .chat__input { display: flex; gap: 8px; padding: 14px; border-top: 1px solid var(--border); background: var(--input-bg); align-items: center; }
+    .chat__input input[type="text"] {
+      flex: 1; padding: 12px 16px; border: 1px solid #cdb38c; border-radius: 24px;
+      font-size: 15px; outline: none; background: var(--input-field); color: var(--bot-text);
     }
-
-    .chat__input input {
-      flex: 1;
-      padding: 12px 16px;
-      border: 1px solid #cdb38c;
-      border-radius: 24px;
-      font-size: 15px;
-      outline: none;
-      background: #fffdf9;
-      color: #3c2a21;
+    .chat__input input::placeholder { color: var(--muted); }
+    .iconbtn {
+      background: var(--user-grad); color: #f0e6d2; border: none; border-radius: 50%;
+      width: 44px; height: 44px; font-size: 17px; cursor: pointer; flex-shrink: 0;
     }
-    .chat__input input::placeholder { color: #a98c6d; }
-    .chat__input input:focus { border-color: #8a6d4f; }
+    .iconbtn:hover { filter: brightness(1.08); }
+    .iconbtn.off { background: #8a6d4f; opacity: 0.55; }
+    .hidden { display: none !important; }
 
-    .chat__input button {
-      background: linear-gradient(135deg, #6f4e37 0%, #5a3e2b 100%);
-      color: #f0e6d2;
-      border: none;
-      border-radius: 50%;
-      width: 46px; height: 46px;
-      font-size: 18px;
-      cursor: pointer;
-      transition: background 0.15s, transform 0.1s;
-    }
-    .chat__input button:hover { background: linear-gradient(135deg, #5a3e2b 0%, #4b3621 100%); }
-    .chat__input button:active { transform: scale(0.94); }
-
-    @media (max-width: 680px) {
-      .app { height: 90vh; }
-      .sidebar { width: 150px; }
+    @media (max-width: 720px) {
+      .app { height: 92vh; }
+      .sidebar { width: 168px; }
     }
   </style>
 </head>
-<body>
+<body data-theme="{{ theme }}">
   <div class="app">
     <aside class="sidebar">
       <div class="sidebar__top">
         <button class="sidebar__new" id="newChat">+ New chat</button>
+        <input class="sidebar__search" id="search" type="text" placeholder="Search your chats..." />
       </div>
       <div class="sidebar__threads" id="threads"></div>
       <div class="sidebar__bottom">
@@ -285,183 +264,36 @@
     <main class="chat">
       <div class="chat__header">
         <span class="dot"></span>
-        ChatBot
+        <span class="title">ChatBot</span>
+        <span class="spacer"></span>
+        <select id="persona" title="Personality for this chat">
+          {% for p in personas %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+        </select>
+        <button type="button" class="hbtn" id="theme" title="Toggle theme">Theme</button>
+        <button type="button" class="hbtn" id="export" title="Download this conversation">Export</button>
       </div>
+
       <div class="chat__messages" id="messages"></div>
+      <div class="docs hidden" id="docs"></div>
+
       <form class="chat__input" id="form">
+        <input type="file" id="file" class="hidden" accept=".pdf,.txt,.md,.csv,.json" />
+        <button type="button" class="iconbtn" id="attach" title="Attach a document">&#128206;</button>
+        <button type="button" class="iconbtn" id="mic" title="Speak">&#127908;</button>
+        <button type="button" class="iconbtn off" id="speak" title="Read replies aloud">&#128264;</button>
         <input id="input" type="text" placeholder="Type a message..." autocomplete="off" autofocus />
-        <button type="submit">&#10148;</button>
+        <button type="submit" class="iconbtn" id="send">&#10148;</button>
+        <button type="button" class="iconbtn hidden" id="stop" title="Stop">&#9632;</button>
       </form>
     </main>
   </div>
 
   <script>
-    const DISPLAY_NAME = {{ display_name|tojson }};
-
-    const messagesEl = document.getElementById("messages");
-    const threadsEl = document.getElementById("threads");
-    const formEl = document.getElementById("form");
-    const inputEl = document.getElementById("input");
-
-    let currentThreadId = null;
-    let sending = false;
-
-    // Render markdown -> safe HTML (bot replies only).
-    function renderMarkdown(text) {
-      return DOMPurify.sanitize(marked.parse(text || ""));
-    }
-
-    function greetingText() {
-      return DISPLAY_NAME
-        ? `Welcome back, ${DISPLAY_NAME}! What's on your mind?`
-        : "Hi! I'm your new friend. Tell me what's on your mind, I'm here to listen.";
-    }
-
-    // Add a message bubble. Bot bubbles render markdown; user bubbles are plain.
-    function addMessage(text, who) {
-      const bubble = document.createElement("div");
-      bubble.className = "msg msg--" + who;
-      if (who === "bot") bubble.innerHTML = renderMarkdown(text);
-      else bubble.textContent = text;
-      messagesEl.appendChild(bubble);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-      return bubble;
-    }
-
-    // ---- Threads ----
-    async function loadThreads() {
-      const res = await fetch("/threads");
-      const threads = await res.json();
-      threadsEl.innerHTML = "";
-      threads.forEach((t) => {
-        const row = document.createElement("div");
-        row.className = "thread" + (t.id === currentThreadId ? " active" : "");
-        row.dataset.id = t.id;
-
-        const title = document.createElement("span");
-        title.className = "thread__title";
-        title.textContent = t.title || "New chat";
-        row.appendChild(title);
-
-        const del = document.createElement("button");
-        del.className = "thread__del";
-        del.innerHTML = "&times;";
-        del.title = "Delete conversation";
-        del.addEventListener("click", (e) => {
-          e.stopPropagation();
-          deleteThread(t.id);
-        });
-        row.appendChild(del);
-
-        row.addEventListener("click", () => selectThread(t.id));
-        threadsEl.appendChild(row);
-      });
-      return threads;
-    }
-
-    async function selectThread(id) {
-      currentThreadId = id;
-      // Update active highlight without a full reload.
-      [...threadsEl.children].forEach((row) => {
-        row.classList.toggle("active", Number(row.dataset.id) === id);
-      });
-
-      const res = await fetch(`/threads/${id}/messages`);
-      const msgs = await res.json();
-      messagesEl.innerHTML = "";
-      if (!msgs.length) {
-        addMessage(greetingText(), "bot");
-      } else {
-        msgs.forEach((m) => {
-          addMessage(m.you, "user");
-          addMessage(m.bot, "bot");
-        });
-      }
-      inputEl.focus();
-    }
-
-    async function newThread() {
-      const res = await fetch("/threads", { method: "POST" });
-      const t = await res.json();
-      await loadThreads();
-      await selectThread(t.id);
-    }
-
-    async function deleteThread(id) {
-      if (!confirm("Delete this conversation?")) return;
-      await fetch(`/threads/${id}/delete`, { method: "POST" });
-      const threads = await loadThreads();
-      // If we deleted the open one, jump to the newest remaining thread.
-      if (id === currentThreadId && threads.length) {
-        await selectThread(threads[0].id);
-      }
-    }
-
-    // ---- Sending a message ----
-    formEl.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const text = inputEl.value.trim();
-      if (text === "" || sending || !currentThreadId) return;
-
-      sending = true;
-      const wasFirstMessage = !messagesEl.querySelector(".msg--user");
-      addMessage(text, "user");
-      inputEl.value = "";
-
-      const bubble = addMessage("", "bot");
-      bubble.innerHTML = '<span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>';
-      let raw = "";
-      let firstChunk = true;
-
-      try {
-        const response = await fetch("/chat/stream", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text, thread_id: currentThreadId }),
-        });
-
-        if (!response.ok && response.status === 429) {
-          bubble.textContent = await response.text();
-          sending = false;
-          return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (firstChunk) { raw = ""; firstChunk = false; }
-          raw += decoder.decode(value, { stream: true });
-          bubble.innerHTML = renderMarkdown(raw);
-          messagesEl.scrollTop = messagesEl.scrollHeight;
-        }
-      } catch (err) {
-        bubble.textContent = "Oops, I couldn't reach the server.";
-      } finally {
-        sending = false;
-      }
-
-      // The first message becomes the thread's title -> refresh the sidebar.
-      if (wasFirstMessage) loadThreads();
-    });
-
-    document.getElementById("newChat").addEventListener("click", newThread);
-
-    document.getElementById("reset").addEventListener("click", async () => {
-      const ok = confirm("Forget your name, all chats, and everything I remember about you?");
-      if (!ok) return;
-      try { await fetch("/reset", { method: "POST" }); } catch (err) {}
-      currentThreadId = null;
-      const threads = await loadThreads();
-      if (threads.length) await selectThread(threads[0].id);
-    });
-
-    // On load: show the newest thread (or create one server-side already done).
-    window.addEventListener("load", async () => {
-      const threads = await loadThreads();
-      if (threads.length) await selectThread(threads[0].id);
-    });
+    window.CHAT_CONFIG = {
+      displayName: {{ display_name|tojson }},
+      personas: {{ personas|tojson }},
+    };
   </script>
+  <script src="{{ url_for('static', filename='chat.js') }}"></script>
 </body>
 </html>
