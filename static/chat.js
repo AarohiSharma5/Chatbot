@@ -21,6 +21,7 @@ let sending = false;
 let pendingEdit = false;       // next submit replaces the last turn
 let abortController = null;
 let ttsOn = localStorage.getItem("tts") === "on";
+let avatarGender = localStorage.getItem("avatarGender") || "off"; // off | male | female
 
 // ---- helpers ----
 // Rendering lives in the shared, reusable Render module (static/render.js),
@@ -141,10 +142,64 @@ inputEl.addEventListener("keydown", (e) => {
   }
 });
 
+// Heuristically pick a male/female system voice by its name. Browsers expose
+// no gender field, so we match common voice names; if none fit we still nudge
+// the pitch up (female) or down (male) so they sound distinct.
+function pickVoice(gender) {
+  const voices = (window.speechSynthesis && window.speechSynthesis.getVoices()) || [];
+  const female = /female|woman|samantha|victoria|zira|tessa|fiona|karen|moira|serena|susan|allison|ava|google uk english female/i;
+  const male = /\bmale\b|\bman\b|daniel|alex|david|fred|rishi|aaron|oliver|thomas|google uk english male/i;
+  const want = gender === "female" ? female : male;
+  return voices.find((v) => want.test(v.name)) || null;
+}
+
 function speak(text) {
   if (!ttsOn || !window.speechSynthesis) return;
   window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+  const u = new SpeechSynthesisUtterance(text);
+  if (avatarGender !== "off") {
+    const v = pickVoice(avatarGender);
+    if (v) u.voice = v;
+    u.pitch = avatarGender === "female" ? 1.25 : 0.75;
+  }
+  const face = document.getElementById("avatarFace");
+  u.onstart = () => face.classList.add("talking");
+  u.onend = () => face.classList.remove("talking");
+  u.onerror = () => face.classList.remove("talking");
+  window.speechSynthesis.speak(u);
+}
+
+// Two simple SVG faces. The .mouth element is what the CSS animates while the
+// avatar is "talking".
+function faceSvg(gender) {
+  const hair = gender === "female" ? "#7a4a2b" : "#5a3a22";
+  const longHair = gender === "female"
+    ? '<path d="M14 30 Q14 56 24 58 L24 34 Z M50 30 Q50 56 40 58 L40 34 Z" fill="' + hair + '"/>'
+    : "";
+  return (
+    '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">' +
+    longHair +
+    '<circle cx="32" cy="32" r="20" fill="#f1d9b5"/>' +
+    '<path d="M12 28 Q32 4 52 28 Q52 16 32 12 Q12 16 12 28 Z" fill="' + hair + '"/>' +
+    '<circle cx="25" cy="30" r="2.6" fill="#3a2418"/>' +
+    '<circle cx="39" cy="30" r="2.6" fill="#3a2418"/>' +
+    '<ellipse class="mouth" cx="32" cy="40" rx="5" ry="3" fill="#8a3b2f"/>' +
+    (gender === "female"
+      ? '<circle cx="22" cy="37" r="2.5" fill="#e58a8a" opacity="0.5"/><circle cx="42" cy="37" r="2.5" fill="#e58a8a" opacity="0.5"/>'
+      : "") +
+    "</svg>"
+  );
+}
+
+function reflectAvatar() {
+  const face = document.getElementById("avatarFace");
+  if (avatarGender === "off") {
+    face.classList.remove("show");
+    face.innerHTML = "";
+  } else {
+    face.innerHTML = faceSvg(avatarGender);
+    face.classList.add("show");
+  }
 }
 
 // ---- threads ----
@@ -458,6 +513,23 @@ speakBtn.addEventListener("click", () => {
   localStorage.setItem("tts", ttsOn ? "on" : "off");
   if (!ttsOn && window.speechSynthesis) window.speechSynthesis.cancel();
   reflectTts();
+});
+
+// ---- talking avatar + voice gender ----
+const voiceSel = document.getElementById("voiceSel");
+voiceSel.value = avatarGender;
+reflectAvatar();
+// Voices load asynchronously in some browsers; refresh once they arrive.
+if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = () => {};
+voiceSel.addEventListener("change", () => {
+  avatarGender = voiceSel.value;
+  localStorage.setItem("avatarGender", avatarGender);
+  reflectAvatar();
+  // Picking a voice should actually talk: turn TTS on. "No avatar" mutes it.
+  ttsOn = avatarGender !== "off";
+  localStorage.setItem("tts", ttsOn ? "on" : "off");
+  reflectTts();
+  if (!ttsOn && window.speechSynthesis) window.speechSynthesis.cancel();
 });
 
 // ---- forget me ----

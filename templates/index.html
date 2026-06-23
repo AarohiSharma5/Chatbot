@@ -267,6 +267,20 @@
     .iconbtn.off { background: #8a6d4f; opacity: 0.55; }
     .hidden { display: none !important; }
 
+    /* Optional talking avatar (represents the chosen voice). Hidden until a
+       male/female voice is picked; its mouth animates while speaking. */
+    .avatar {
+      width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+      display: none; overflow: hidden; background: #e9d8bf;
+    }
+    .avatar.show { display: inline-block; }
+    .avatar svg { width: 100%; height: 100%; display: block; }
+    .avatar.talking { box-shadow: 0 0 0 3px rgba(212, 180, 131, 0.55); animation: avatarPulse 0.7s infinite; }
+    .avatar .mouth { transform-origin: 50% 62%; }
+    .avatar.talking .mouth { animation: talk 0.26s infinite alternate; }
+    @keyframes talk { from { transform: scaleY(0.35); } to { transform: scaleY(1.25); } }
+    @keyframes avatarPulse { 0%,100% { box-shadow: 0 0 0 2px rgba(212,180,131,0.5); } 50% { box-shadow: 0 0 0 5px rgba(212,180,131,0.25); } }
+
     /* Hamburger lives in the header but only shows on small screens. */
     .menu-toggle { display: none; }
     /* Dark overlay behind the slide-in sidebar on mobile. */
@@ -330,9 +344,15 @@
     <main class="chat">
       <div class="chat__header">
         <button type="button" class="hbtn menu-toggle" id="menuToggle" title="Menu" aria-label="Menu">&#9776;</button>
+        <div class="avatar" id="avatarFace" aria-hidden="true"></div>
         <span class="dot"></span>
         <span class="title">ChatBot</span>
         <span class="spacer"></span>
+        <select id="voiceSel" title="Talking avatar &amp; voice">
+          <option value="off">No avatar</option>
+          <option value="female">Female voice</option>
+          <option value="male">Male voice</option>
+        </select>
         <select id="persona" title="Personality for this chat">
           {% for p in personas %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
         </select>
