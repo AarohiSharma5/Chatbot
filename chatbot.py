@@ -72,6 +72,35 @@ def is_similar(word_a, word_b, threshold=0.8):
     return ratio >= threshold
 
 
+# "Chit-chat" intents are matched by very common words (hello, bye, thanks).
+# Those words often appear INSIDE a real request -- e.g. "code to say hello in
+# rust" contains "hello", "how do I exit a loop" contains "exit". When that
+# happens we should NOT fire the canned reply; we should let the AI answer.
+CASUAL_INTENTS = {"greeting", "goodbye", "thanks"}
+
+# Words that signal the user wants the AI to actually DO something (write code,
+# explain, translate...). If one of these shows up, a stray "hello"/"bye"
+# shouldn't hijack the message into a canned chit-chat reply.
+REQUEST_WORDS = {
+    "code", "write", "explain", "build", "create", "make", "generate",
+    "function", "script", "program", "example", "translate", "summarize",
+    "summarise", "define", "compare", "difference", "convert", "fix", "debug",
+    "implement", "calculate", "solve", "steps", "tutorial", "help",
+    "python", "rust", "java", "javascript", "typescript", "html", "css", "sql",
+    "react", "node", "django", "flask",
+}
+REQUEST_PHRASES = ("how to", "how do i", "how do you", "give me", "show me", "help me")
+
+
+def looks_like_task(message):
+    """True if the message reads like a real request/question, not chit-chat."""
+    text = message.lower()
+    if any(phrase in text for phrase in REQUEST_PHRASES):
+        return True
+    words = {word.strip(string.punctuation) for word in text.split()}
+    return bool(words & REQUEST_WORDS)
+
+
 def get_intent(message):
     """Return the best-matching intent for the message, or None."""
     # Lower-casing makes matching case-insensitive ("Hi" == "hi").
@@ -109,7 +138,18 @@ def get_intent(message):
 
     # Return the intent with the HIGHEST score.
     # max(..., key=scores.get) means "the key whose value is largest".
-    return max(scores, key=scores.get)
+    best = max(scores, key=scores.get)
+
+    # Guard: if the "winner" is just chit-chat but the message is clearly a
+    # task (or a long sentence where the keyword is incidental), hand it to the
+    # AI instead of replying "Hi there!".
+    if best in CASUAL_INTENTS:
+        if looks_like_task(message):
+            return None
+        if len(words) >= 5 and scores[best] <= 1:
+            return None
+
+    return best
 
 
 # ---------------------------------------------------------------------------
@@ -224,8 +264,14 @@ def detect_name(message):
         match = re.search(pattern, message, re.IGNORECASE)
         if match:
             name = match.group(1).strip()
-            if name.lower() in NOT_NAMES:
+            low = name.lower()
+            if low in NOT_NAMES:
                 continue  # e.g. "I'm fine" -> not a name
+            # Reject verb-like words: "I'm having/going/trying..." captured the
+            # verb, not a name. Real names ending in "-ing" are rare and short
+            # (King, Ming), so only reject longer ones.
+            if len(low) > 4 and low.endswith("ing"):
+                continue
             return name.capitalize()
     return None
 
