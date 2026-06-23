@@ -142,25 +142,72 @@ inputEl.addEventListener("keydown", (e) => {
   }
 });
 
-// Heuristically pick a male/female system voice by its name. Browsers expose
-// no gender field, so we match common voice names; if none fit we still nudge
-// the pitch up (female) or down (male) so they sound distinct.
-function pickVoice(gender) {
+// Turn markdown into something natural to READ ALOUD: drop code blocks, strip
+// markdown markers (so it doesn't say "asterisk asterisk"), unwrap links.
+function speakableText(text) {
+  return (text || "")
+    .replace(/```[\s\S]*?```/g, " ")           // fenced code blocks
+    .replace(/`[^`]*`/g, " ")                   // inline code
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")      // images
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")    // links -> link text
+    .replace(/https?:\/\/\S+/g, " ")            // bare URLs
+    .replace(/^\s{0,3}#{1,6}\s*/gm, "")          // heading hashes
+    .replace(/^\s*[-*+]\s+/gm, "")               // list bullets
+    .replace(/[*_~`#>|]/g, " ")                  // leftover md markers
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Guess the language from the text so the synthesizer pronounces it correctly.
+// Non-Latin scripts are detected by their Unicode ranges; a few Latin
+// languages by tell-tale words.
+const LANG_REGION = {
+  en: "en-US", ja: "ja-JP", ko: "ko-KR", zh: "zh-CN", fr: "fr-FR", es: "es-ES",
+  de: "de-DE", it: "it-IT", pt: "pt-PT", ru: "ru-RU", ar: "ar-SA", hi: "hi-IN",
+  he: "he-IL", th: "th-TH", el: "el-GR",
+};
+function detectLang(t) {
+  if (/[\u3040-\u30ff]/.test(t)) return "ja";
+  if (/[\uac00-\ud7af]/.test(t)) return "ko";
+  if (/[\u4e00-\u9fff]/.test(t)) return "zh";
+  if (/[\u0600-\u06ff]/.test(t)) return "ar";
+  if (/[\u0400-\u04ff]/.test(t)) return "ru";
+  if (/[\u0900-\u097f]/.test(t)) return "hi";
+  if (/[\u0590-\u05ff]/.test(t)) return "he";
+  if (/[\u0e00-\u0e7f]/.test(t)) return "th";
+  if (/[\u0370-\u03ff]/.test(t)) return "el";
+  const s = " " + t.toLowerCase() + " ";
+  if (/\b(bonjour|merci|bonsoir|salut|c'est|je suis|vous|une|oui|s'il)\b/.test(s)) return "fr";
+  if (/\b(hola|gracias|buenos|cómo|qué|usted|por favor|adiós)\b/.test(s)) return "es";
+  if (/\b(hallo|danke|guten|ich|und|nicht|bitte|tschüss)\b/.test(s)) return "de";
+  if (/\b(ciao|grazie|buongiorno|sono|prego)\b/.test(s)) return "it";
+  if (/\b(olá|obrigado|bom dia|você)\b/.test(s)) return "pt";
+  return "en";
+}
+
+// Pick a voice that matches the language first, then the chosen gender.
+function pickVoice(gender, lang) {
   const voices = (window.speechSynthesis && window.speechSynthesis.getVoices()) || [];
-  const female = /female|woman|samantha|victoria|zira|tessa|fiona|karen|moira|serena|susan|allison|ava|google uk english female/i;
-  const male = /\bmale\b|\bman\b|daniel|alex|david|fred|rishi|aaron|oliver|thomas|google uk english male/i;
+  const female = /female|woman|samantha|victoria|zira|tessa|fiona|karen|moira|serena|susan|allison|ava|amelie|google.*female/i;
+  const male = /\bmale\b|\bman\b|daniel|alex|david|fred|rishi|aaron|oliver|thomas|jorge|google.*male/i;
   const want = gender === "female" ? female : male;
-  return voices.find((v) => want.test(v.name)) || null;
+  const inLang = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith(lang));
+  const pool = inLang.length ? inLang : voices;
+  return pool.find((v) => want.test(v.name)) || inLang[0] || null;
 }
 
 function speak(text) {
   if (!ttsOn || !window.speechSynthesis) return;
+  const clean = speakableText(text);
+  if (!clean) return;
   window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
+  const lang = detectLang(clean);
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang = LANG_REGION[lang] || "en-US";
   if (avatarGender !== "off") {
-    const v = pickVoice(avatarGender);
+    const v = pickVoice(avatarGender, lang);
     if (v) u.voice = v;
-    u.pitch = avatarGender === "female" ? 1.25 : 0.75;
+    u.pitch = avatarGender === "female" ? 1.2 : 0.8;
   }
   const face = document.getElementById("avatarFace");
   u.onstart = () => face.classList.add("talking");
