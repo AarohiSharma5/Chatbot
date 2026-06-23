@@ -27,6 +27,43 @@ function renderMarkdown(text) {
   return DOMPurify.sanitize(marked.parse(text || ""));
 }
 
+// Full "rich" render for a finished bot message: markdown + LaTeX math
+// (KaTeX) + code syntax highlighting (highlight.js). We do the heavier math
+// and highlighting passes once a message is complete (or when loading old
+// ones), since they don't like half-finished input mid-stream.
+function renderRich(bubble, text) {
+  bubble.dataset.raw = text;
+
+  // Markdown would mangle LaTeX delimiters (\( becomes (, etc.), so pull the
+  // math out first, run markdown, then put the math back untouched for KaTeX.
+  const math = [];
+  const stash = (m) => { math.push(m); return `@@MATH${math.length - 1}@@`; };
+  let protectedText = text
+    .replace(/\\\[[\s\S]*?\\\]/g, stash)
+    .replace(/\$\$[\s\S]*?\$\$/g, stash)
+    .replace(/\\\([\s\S]*?\\\)/g, stash);
+
+  let html = renderMarkdown(protectedText);
+  html = html.replace(/@@MATH(\d+)@@/g, (_, i) => math[i]);
+  bubble.innerHTML = html;
+
+  if (window.renderMathInElement) {
+    try {
+      window.renderMathInElement(bubble, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "\\[", right: "\\]", display: true },
+          { left: "\\(", right: "\\)", display: false },
+        ],
+        throwOnError: false,
+      });
+    } catch (e) { /* leave raw math if KaTeX trips */ }
+  }
+  if (window.hljs) {
+    bubble.querySelectorAll("pre code").forEach((el) => window.hljs.highlightElement(el));
+  }
+}
+
 function greetingText() {
   return CFG.displayName
     ? `Welcome back, ${CFG.displayName}! What's on your mind?`
@@ -40,7 +77,7 @@ function addTurn(text, who) {
 
   const bubble = document.createElement("div");
   bubble.className = "msg msg--" + who;
-  if (who === "bot") bubble.innerHTML = renderMarkdown(text);
+  if (who === "bot") renderRich(bubble, text);
   else bubble.textContent = text;
   bubble.dataset.raw = text;
   turn.appendChild(bubble);
@@ -233,6 +270,7 @@ async function doSend(text, opts = {}) {
       bubble.dataset.raw = raw;
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+    renderRich(bubble, raw); // final pass: math + code highlighting
     speak(raw);
   } catch (err) {
     if (err.name === "AbortError") {
