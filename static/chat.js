@@ -595,6 +595,13 @@ voiceSel.addEventListener("change", () => {
   if (!ttsOn && window.speechSynthesis) window.speechSynthesis.cancel();
 });
 
+// ---- clear name only ----
+document.getElementById("clearName").addEventListener("click", async () => {
+  if (!confirm("Forget just my name? (Your chats and memories stay.)")) return;
+  try { await fetch("/name/clear", { method: "POST" }); } catch (err) {}
+  alert("Done -- I've cleared your name. Tell me a new one anytime with \"my name is ...\".");
+});
+
 // ---- forget me ----
 document.getElementById("reset").addEventListener("click", async () => {
   if (!confirm("Forget your name, all chats, and everything I remember about you?")) return;

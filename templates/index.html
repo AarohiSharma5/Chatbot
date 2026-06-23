@@ -341,6 +341,7 @@
       <div class="sidebar__threads" id="threads"></div>
       <div class="sidebar__bottom">
         <a href="{{ url_for('memories_page') }}">Memory</a>
+        <button type="button" id="clearName" title="Forget just my name">Clear name</button>
         <button type="button" id="reset" title="Forget everything">Forget me</button>
         <form method="post" action="{{ url_for('logout') }}">
           <button type="submit">Log out</button>

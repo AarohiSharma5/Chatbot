@@ -327,6 +327,16 @@ def reset():
     return ("", 204)
 
 
+@app.route("/name/clear", methods=["POST"])
+@login_required
+def clear_name():
+    """Forget ONLY the user's name (keeps chats and memories)."""
+    user_id = current_user_id()
+    storage.save_user_name(user_id, None)
+    _state(user_id)["awaiting_name"] = False
+    return ("", 204)
+
+
 # --------------------------------------------------------------------------
 # Thread API (the sidebar talks to these)
 # --------------------------------------------------------------------------
