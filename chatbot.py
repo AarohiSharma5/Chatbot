@@ -182,7 +182,36 @@ NOT_NAMES = {
     "done", "confused", "learning", "trying", "just", "really", "very",
     "feeling", "doing", "going", "sure", "alright", "hungry", "from",
     "what", "whats", "who", "whos", "your", "my", "this", "that", "it",
+    "why", "how", "when", "where", "yes", "no", "maybe", "nope", "yeah",
+    "nah", "hmm", "nothing", "something", "anything", "idk",
 }
+
+
+def plausible_name(message):
+    """Return a likely name if the WHOLE message looks like one, else None.
+
+    This is the looser check used only right after the bot asks "what's your
+    name?" -- in that moment a bare reply like "aarohi" is almost certainly
+    the name. We accept 1-2 alphabetic words and reject obvious non-names.
+    """
+    tokens = message.strip().split()
+    if not (1 <= len(tokens) <= 2):
+        return None
+
+    for token in tokens:
+        if not re.fullmatch(r"[A-Za-z][A-Za-z'\-]{0,29}", token):
+            return None  # has digits/symbols or is too long -> not a name
+        if token.lower() in NOT_NAMES:
+            return None
+
+    # Reject anything that's actually a known command word (hi, bye, joke...).
+    lowered = message.strip().lower()
+    for keyword_list in KEYWORDS.values():
+        for keyword in keyword_list:
+            if " " not in keyword and keyword == lowered:
+                return None
+
+    return " ".join(word.capitalize() for word in tokens)
 
 
 def detect_name(message):
@@ -229,7 +258,7 @@ def get_response(intent, user_name, message="", history=None):
     if intent == "ask_my_name":
         if user_name:
             return f"Your name is {user_name}, of course!"
-        return "I don't know your name yet! Tell me by saying 'my name is ...'."
+        return "I don't know your name yet! What should I call you?"
 
     # The date/time changes constantly, so we build this reply FRESH.
     if intent == "time":

@@ -31,17 +31,30 @@ history = memory.get("history", [])
 # real multi-user site would store this per-user in a session/database.)
 last_intent = None
 
+# Did the bot JUST ask for the user's name? If so, we treat the next reply as
+# the name even if it's a bare word like "aarohi" (conversational capture).
+awaiting_name = False
+
 
 def capture_name(user_message):
-    """If the message states the user's name, save it and confirm.
+    """If the message states (or, when asked, simply is) the user's name,
+    save it and confirm. Returns a confirmation reply, or None.
 
-    The web bot has no startup "what's your name?" prompt, so we learn the
-    name from chat ("my name is ...", "I'm ..."). Returns a confirmation
-    reply if a name was found, otherwise None.
+    Two ways we learn a name:
+      1. Explicit phrasing anytime: "my name is X", "call me X", ...
+      2. A bare reply right after WE asked "what's your name?" (awaiting_name).
     """
+    global awaiting_name
+
     name = chatbot.detect_name(user_message)
+    if not name and awaiting_name:
+        # The bot just asked, so a plain "aarohi" is almost certainly the name.
+        name = chatbot.plausible_name(user_message)
+
     if not name:
         return None
+
+    awaiting_name = False
     storage.save_user_name(name)
     memory["user_name"] = name  # update the in-memory copy too
     return f"Nice to meet you, {name}! I'll remember that."
@@ -76,25 +89,25 @@ def build_reply(user_message):
 
         reply = chatbot.get_response(intent, user_name, user_message, history)
 
-    # 3. Save this exchange: keep it in memory (for AI context) and insert
-    #    a new row into the database (shared with the terminal bot).
-    history.append({"you": user_message, "bot": reply})
-    storage.add_message(user_message, reply)
-
-    # 4. Remember the intent for next time.
-    if intent is not None:
-        last_intent = intent
-
+    # 3. Save this exchange and update context.
+    _save_exchange(user_message, reply, intent)
     return reply
 
 
 def _save_exchange(user_message, reply, intent):
     """Record one exchange (in memory + database) and update context."""
-    global last_intent
+    global last_intent, awaiting_name
     history.append({"you": user_message, "bot": reply})
+    # Keep the in-memory list bounded too (the DB is trimmed in add_message).
+    if len(history) > storage.MAX_MESSAGES:
+        del history[:-storage.MAX_MESSAGES]
     storage.add_message(user_message, reply)
     if intent is not None:
         last_intent = intent
+
+    # If the bot just asked for the name (ask_my_name with none stored), arm
+    # conversational capture so the NEXT message is taken as the name.
+    awaiting_name = intent == "ask_my_name" and not memory.get("user_name")
 
 
 def stream_reply(user_message):
@@ -164,6 +177,21 @@ def delete_memory(memory_id):
     """Forget one fact, then return to the memory viewer."""
     storage.delete_memory(memory_id)
     return redirect(url_for("memories_page"))
+
+
+@app.route("/reset", methods=["POST"])
+def reset():
+    """Make the bot forget everything: name, history, and stored facts.
+
+    We clear the database AND the in-memory state so the running server
+    immediately behaves like a fresh start (no restart needed)."""
+    global last_intent, awaiting_name
+    storage.reset_all()
+    history.clear()
+    memory["user_name"] = None
+    last_intent = None
+    awaiting_name = False
+    return ("", 204)
 
 
 @app.route("/chat", methods=["POST"])

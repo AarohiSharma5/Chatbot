@@ -114,12 +114,30 @@ def save_user_name(name):
     conn.close()
 
 
+# Keep only the most recent N exchanges. Old chat isn't needed: the AI only
+# uses the last few turns, so letting the table grow forever just wastes space.
+MAX_MESSAGES = 200
+
+
 def add_message(you, bot):
-    """Insert ONE new exchange. Unlike the file approach, we add a single
-    row instead of rewriting the entire history every time -- this is a big
-    reason databases scale better than files."""
+    """Insert ONE new exchange, then trim the table to the most recent
+    MAX_MESSAGES rows so it stays bounded.
+
+    Unlike the file approach, we add a single row instead of rewriting the
+    whole history every time -- a big reason databases scale better. The
+    DELETE keeps every row EXCEPT the newest MAX_MESSAGES (found via a
+    subquery), so the table can't grow without limit."""
     conn = _connect()
     conn.execute("INSERT INTO messages (you, bot) VALUES (?, ?)", (you, bot))
+    conn.execute(
+        """
+        DELETE FROM messages
+        WHERE id NOT IN (
+            SELECT id FROM messages ORDER BY id DESC LIMIT ?
+        )
+        """,
+        (MAX_MESSAGES,),
+    )
     conn.commit()
     conn.close()
 
@@ -186,6 +204,20 @@ def delete_memory(memory_id):
     """Delete one stored fact by its id (used by the memory viewer)."""
     conn = _connect()
     conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+    conn.commit()
+    conn.close()
+
+
+def reset_all():
+    """Wipe everything the bot remembers: the name, chat history, and facts.
+
+    Used by the "forget me" button. We clear all three tables so the bot
+    starts fresh, as if it had never met the user.
+    """
+    conn = _connect()
+    conn.execute("DELETE FROM messages")
+    conn.execute("DELETE FROM memories")
+    conn.execute("DELETE FROM settings WHERE key = 'user_name'")
     conn.commit()
     conn.close()
 

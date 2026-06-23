@@ -63,6 +63,14 @@
 
     .chat__header .memories-link:hover { background: rgba(212, 180, 131, 0.15); }
 
+    /* The "Forget me" button reuses the link look but is a real <button>. */
+    .chat__header .header-btn {
+      margin-left: 8px;
+      background: transparent;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
     /* ---- Message list ---- */
     .chat__messages {
       flex: 1;
@@ -90,6 +98,20 @@
       background: #e6d3b3;
       color: #3c2a21;
       border-bottom-left-radius: 4px;
+    }
+
+    /* Animated "typing..." dots shown until the first reply chunk arrives. */
+    .typing-dots span {
+      display: inline-block;
+      animation: blink 1.4s infinite both;
+      font-weight: bold;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes blink {
+      0%, 80%, 100% { opacity: 0.2; }
+      40% { opacity: 1; }
     }
 
     .msg--user {
@@ -145,6 +167,7 @@
       <span class="dot"></span>
       ChatBot
       <a class="memories-link" href="{{ url_for('memories_page') }}">Memory</a>
+      <button type="button" id="reset" class="memories-link header-btn" title="Forget everything and start fresh">Forget me</button>
     </div>
 
     <div class="chat__messages" id="messages"></div>
@@ -197,6 +220,9 @@
       // we read the response body as a stream and append each chunk as it
       // arrives -- so the bot's answer "types itself" live.
       const bubble = addMessage("", "bot");
+      // Show animated dots until the first chunk arrives (the bot is "thinking").
+      bubble.innerHTML = '<span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>';
+      let firstChunk = true;
       try {
         const response = await fetch("/chat/stream", {
           method: "POST",
@@ -209,12 +235,29 @@
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          if (firstChunk) {
+            bubble.textContent = ""; // remove the typing dots
+            firstChunk = false;
+          }
           bubble.textContent += decoder.decode(value, { stream: true });
           messagesEl.scrollTop = messagesEl.scrollHeight;
         }
       } catch (err) {
         bubble.textContent = "Oops, I couldn't reach the server.";
       }
+    });
+
+    // "Forget me": wipe everything on the server, then reset the screen.
+    document.getElementById("reset").addEventListener("click", async () => {
+      const ok = confirm("Forget your name, this chat, and everything I remember about you?");
+      if (!ok) return;
+      try {
+        await fetch("/reset", { method: "POST" });
+      } catch (err) {
+        /* ignore network errors; we still clear the screen */
+      }
+      messagesEl.innerHTML = "";
+      typeMessage("Okay, fresh start! What should I call you?");
     });
 
     // Greet the user when the page loads.
