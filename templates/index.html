@@ -4,8 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>My First Chatbot</title>
+
+  <!-- Markdown rendering: marked turns the AI's markdown into HTML, and
+       DOMPurify strips anything unsafe before we put it on the page. -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+
   <style>
-    /* ---- Basic page styling ---- */
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
@@ -18,17 +23,121 @@
       padding: 16px;
     }
 
-    .chat {
+    .app {
       width: 100%;
-      max-width: 460px;
-      height: 640px;
+      max-width: 880px;
+      height: 660px;
+      display: flex;
       background: #faf6ef;
       border-radius: 20px;
       box-shadow: 0 24px 60px rgba(46, 28, 20, 0.45);
-      display: flex;
-      flex-direction: column;
       overflow: hidden;
       border: 1px solid #e6d8c3;
+    }
+
+    /* ---- Sidebar (threads) ---- */
+    .sidebar {
+      width: 240px;
+      flex-shrink: 0;
+      background: #3e2723;
+      color: #e9dcc6;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar__top { padding: 14px; }
+
+    .sidebar__new {
+      width: 100%;
+      padding: 11px;
+      background: #6f4e37;
+      color: #f5efe2;
+      border: none;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .sidebar__new:hover { background: #7d5a40; }
+
+    .sidebar__threads {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .thread {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #d8c7ad;
+      transition: background 0.12s;
+    }
+    .thread:hover { background: rgba(212, 180, 131, 0.12); }
+    .thread.active { background: rgba(212, 180, 131, 0.22); color: #fbf3e2; }
+
+    .thread__title {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .thread__del {
+      background: transparent;
+      border: none;
+      color: #b79b78;
+      font-size: 16px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.12s, color 0.12s;
+      flex-shrink: 0;
+    }
+    .thread:hover .thread__del { opacity: 1; }
+    .thread__del:hover { color: #f0c7b8; }
+
+    .sidebar__bottom {
+      padding: 12px;
+      border-top: 1px solid #51372c;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .sidebar__bottom a,
+    .sidebar__bottom button {
+      width: 100%;
+      text-align: center;
+      padding: 9px;
+      font-size: 13px;
+      font-family: inherit;
+      border-radius: 10px;
+      border: 1px solid #6d4c41;
+      background: transparent;
+      color: #e6d3b3;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .sidebar__bottom a:hover,
+    .sidebar__bottom button:hover { background: rgba(212, 180, 131, 0.15); }
+
+    .sidebar__bottom form { margin: 0; }
+
+    /* ---- Chat area ---- */
+    .chat {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
     }
 
     .chat__header {
@@ -49,29 +158,6 @@
       box-shadow: 0 0 0 3px rgba(212, 180, 131, 0.25);
     }
 
-    .chat__header .memories-link {
-      margin-left: auto;
-      color: #e6d3b3;
-      text-decoration: none;
-      font-size: 13px;
-      font-weight: 500;
-      padding: 5px 11px;
-      border: 1px solid #6d4c41;
-      border-radius: 18px;
-      transition: background 0.15s;
-    }
-
-    .chat__header .memories-link:hover { background: rgba(212, 180, 131, 0.15); }
-
-    /* The "Forget me" button reuses the link look but is a real <button>. */
-    .chat__header .header-btn {
-      margin-left: 8px;
-      background: transparent;
-      font-family: inherit;
-      cursor: pointer;
-    }
-
-    /* ---- Message list ---- */
     .chat__messages {
       flex: 1;
       padding: 20px;
@@ -83,12 +169,11 @@
     }
 
     .msg {
-      max-width: 78%;
+      max-width: 80%;
       padding: 10px 14px;
       border-radius: 16px;
-      line-height: 1.4;
+      line-height: 1.45;
       font-size: 15px;
-      white-space: pre-wrap;
       word-wrap: break-word;
       box-shadow: 0 1px 2px rgba(46, 28, 20, 0.12);
     }
@@ -100,7 +185,35 @@
       border-bottom-left-radius: 4px;
     }
 
-    /* Animated "typing..." dots shown until the first reply chunk arrives. */
+    .msg--user {
+      align-self: flex-end;
+      background: linear-gradient(135deg, #6f4e37 0%, #5a3e2b 100%);
+      color: #f5efe2;
+      border-bottom-right-radius: 4px;
+      white-space: pre-wrap;
+    }
+
+    /* Markdown elements inside a bot bubble */
+    .msg--bot p { margin: 0 0 8px; }
+    .msg--bot p:last-child { margin-bottom: 0; }
+    .msg--bot ul, .msg--bot ol { margin: 4px 0 8px 20px; }
+    .msg--bot code {
+      background: #d8c2a0;
+      padding: 1px 5px;
+      border-radius: 5px;
+      font-size: 13px;
+    }
+    .msg--bot pre {
+      background: #2e1c14;
+      color: #f3e9d8;
+      padding: 10px 12px;
+      border-radius: 10px;
+      overflow-x: auto;
+      margin: 6px 0;
+    }
+    .msg--bot pre code { background: transparent; padding: 0; color: inherit; }
+    .msg--bot a { color: #6f4e37; }
+
     .typing-dots span {
       display: inline-block;
       animation: blink 1.4s infinite both;
@@ -108,20 +221,11 @@
     }
     .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
     .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-
     @keyframes blink {
       0%, 80%, 100% { opacity: 0.2; }
       40% { opacity: 1; }
     }
 
-    .msg--user {
-      align-self: flex-end;
-      background: linear-gradient(135deg, #6f4e37 0%, #5a3e2b 100%);
-      color: #f5efe2;
-      border-bottom-right-radius: 4px;
-    }
-
-    /* ---- Input area ---- */
     .chat__input {
       display: flex;
       gap: 8px;
@@ -140,9 +244,7 @@
       background: #fffdf9;
       color: #3c2a21;
     }
-
     .chat__input input::placeholder { color: #a98c6d; }
-
     .chat__input input:focus { border-color: #8a6d4f; }
 
     .chat__input button {
@@ -155,114 +257,210 @@
       cursor: pointer;
       transition: background 0.15s, transform 0.1s;
     }
-
     .chat__input button:hover { background: linear-gradient(135deg, #5a3e2b 0%, #4b3621 100%); }
-
     .chat__input button:active { transform: scale(0.94); }
+
+    @media (max-width: 680px) {
+      .app { height: 90vh; }
+      .sidebar { width: 150px; }
+    }
   </style>
 </head>
 <body>
-  <div class="chat">
-    <div class="chat__header">
-      <span class="dot"></span>
-      ChatBot
-      <a class="memories-link" href="{{ url_for('memories_page') }}">Memory</a>
-      <button type="button" id="reset" class="memories-link header-btn" title="Forget everything and start fresh">Forget me</button>
-    </div>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar__top">
+        <button class="sidebar__new" id="newChat">+ New chat</button>
+      </div>
+      <div class="sidebar__threads" id="threads"></div>
+      <div class="sidebar__bottom">
+        <a href="{{ url_for('memories_page') }}">Memory</a>
+        <button type="button" id="reset" title="Forget everything">Forget me</button>
+        <form method="post" action="{{ url_for('logout') }}">
+          <button type="submit">Log out</button>
+        </form>
+      </div>
+    </aside>
 
-    <div class="chat__messages" id="messages"></div>
-
-    <form class="chat__input" id="form">
-      <input id="input" type="text" placeholder="Type a message..." autocomplete="off" autofocus />
-      <button type="submit">&#10148;</button>
-    </form>
+    <main class="chat">
+      <div class="chat__header">
+        <span class="dot"></span>
+        ChatBot
+      </div>
+      <div class="chat__messages" id="messages"></div>
+      <form class="chat__input" id="form">
+        <input id="input" type="text" placeholder="Type a message..." autocomplete="off" autofocus />
+        <button type="submit">&#10148;</button>
+      </form>
+    </main>
   </div>
 
   <script>
+    const DISPLAY_NAME = {{ display_name|tojson }};
+
     const messagesEl = document.getElementById("messages");
+    const threadsEl = document.getElementById("threads");
     const formEl = document.getElementById("form");
     const inputEl = document.getElementById("input");
 
-    // Add a message bubble to the screen.
+    let currentThreadId = null;
+    let sending = false;
+
+    // Render markdown -> safe HTML (bot replies only).
+    function renderMarkdown(text) {
+      return DOMPurify.sanitize(marked.parse(text || ""));
+    }
+
+    function greetingText() {
+      return DISPLAY_NAME
+        ? `Welcome back, ${DISPLAY_NAME}! What's on your mind?`
+        : "Hi! I'm your new friend. Tell me what's on your mind, I'm here to listen.";
+    }
+
+    // Add a message bubble. Bot bubbles render markdown; user bubbles are plain.
     function addMessage(text, who) {
       const bubble = document.createElement("div");
       bubble.className = "msg msg--" + who;
-      bubble.textContent = text;
+      if (who === "bot") bubble.innerHTML = renderMarkdown(text);
+      else bubble.textContent = text;
       messagesEl.appendChild(bubble);
-      // Always scroll to the newest message.
       messagesEl.scrollTop = messagesEl.scrollHeight;
       return bubble;
     }
 
-    // "Type out" the bot's reply one character at a time (like the
-    // terminal version's typing effect, but in the browser).
-    function typeMessage(text) {
-      const bubble = addMessage("", "bot");
-      let i = 0;
-      const timer = setInterval(() => {
-        bubble.textContent += text[i];
-        i++;
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-        if (i >= text.length) clearInterval(timer);
-      }, 18);
+    // ---- Threads ----
+    async function loadThreads() {
+      const res = await fetch("/threads");
+      const threads = await res.json();
+      threadsEl.innerHTML = "";
+      threads.forEach((t) => {
+        const row = document.createElement("div");
+        row.className = "thread" + (t.id === currentThreadId ? " active" : "");
+        row.dataset.id = t.id;
+
+        const title = document.createElement("span");
+        title.className = "thread__title";
+        title.textContent = t.title || "New chat";
+        row.appendChild(title);
+
+        const del = document.createElement("button");
+        del.className = "thread__del";
+        del.innerHTML = "&times;";
+        del.title = "Delete conversation";
+        del.addEventListener("click", (e) => {
+          e.stopPropagation();
+          deleteThread(t.id);
+        });
+        row.appendChild(del);
+
+        row.addEventListener("click", () => selectThread(t.id));
+        threadsEl.appendChild(row);
+      });
+      return threads;
     }
 
-    // When the form is submitted, send the message and STREAM the reply.
-    formEl.addEventListener("submit", async (event) => {
-      event.preventDefault(); // stop the page from reloading
-      const text = inputEl.value.trim();
-      if (text === "") return;
+    async function selectThread(id) {
+      currentThreadId = id;
+      // Update active highlight without a full reload.
+      [...threadsEl.children].forEach((row) => {
+        row.classList.toggle("active", Number(row.dataset.id) === id);
+      });
 
+      const res = await fetch(`/threads/${id}/messages`);
+      const msgs = await res.json();
+      messagesEl.innerHTML = "";
+      if (!msgs.length) {
+        addMessage(greetingText(), "bot");
+      } else {
+        msgs.forEach((m) => {
+          addMessage(m.you, "user");
+          addMessage(m.bot, "bot");
+        });
+      }
+      inputEl.focus();
+    }
+
+    async function newThread() {
+      const res = await fetch("/threads", { method: "POST" });
+      const t = await res.json();
+      await loadThreads();
+      await selectThread(t.id);
+    }
+
+    async function deleteThread(id) {
+      if (!confirm("Delete this conversation?")) return;
+      await fetch(`/threads/${id}/delete`, { method: "POST" });
+      const threads = await loadThreads();
+      // If we deleted the open one, jump to the newest remaining thread.
+      if (id === currentThreadId && threads.length) {
+        await selectThread(threads[0].id);
+      }
+    }
+
+    // ---- Sending a message ----
+    formEl.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const text = inputEl.value.trim();
+      if (text === "" || sending || !currentThreadId) return;
+
+      sending = true;
+      const wasFirstMessage = !messagesEl.querySelector(".msg--user");
       addMessage(text, "user");
       inputEl.value = "";
 
-      // Call our streaming endpoint. Instead of waiting for the full reply,
-      // we read the response body as a stream and append each chunk as it
-      // arrives -- so the bot's answer "types itself" live.
       const bubble = addMessage("", "bot");
-      // Show animated dots until the first chunk arrives (the bot is "thinking").
       bubble.innerHTML = '<span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>';
+      let raw = "";
       let firstChunk = true;
+
       try {
         const response = await fetch("/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text }),
+          body: JSON.stringify({ message: text, thread_id: currentThreadId }),
         });
+
+        if (!response.ok && response.status === 429) {
+          bubble.textContent = await response.text();
+          sending = false;
+          return;
+        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          if (firstChunk) {
-            bubble.textContent = ""; // remove the typing dots
-            firstChunk = false;
-          }
-          bubble.textContent += decoder.decode(value, { stream: true });
+          if (firstChunk) { raw = ""; firstChunk = false; }
+          raw += decoder.decode(value, { stream: true });
+          bubble.innerHTML = renderMarkdown(raw);
           messagesEl.scrollTop = messagesEl.scrollHeight;
         }
       } catch (err) {
         bubble.textContent = "Oops, I couldn't reach the server.";
+      } finally {
+        sending = false;
       }
+
+      // The first message becomes the thread's title -> refresh the sidebar.
+      if (wasFirstMessage) loadThreads();
     });
 
-    // "Forget me": wipe everything on the server, then reset the screen.
+    document.getElementById("newChat").addEventListener("click", newThread);
+
     document.getElementById("reset").addEventListener("click", async () => {
-      const ok = confirm("Forget your name, this chat, and everything I remember about you?");
+      const ok = confirm("Forget your name, all chats, and everything I remember about you?");
       if (!ok) return;
-      try {
-        await fetch("/reset", { method: "POST" });
-      } catch (err) {
-        /* ignore network errors; we still clear the screen */
-      }
-      messagesEl.innerHTML = "";
-      typeMessage("Okay, fresh start! What should I call you?");
+      try { await fetch("/reset", { method: "POST" }); } catch (err) {}
+      currentThreadId = null;
+      const threads = await loadThreads();
+      if (threads.length) await selectThread(threads[0].id);
     });
 
-    // Greet the user when the page loads.
-    window.addEventListener("load", () => {
-      typeMessage("Hi! I'm your new friend. Tell me what's on your mind, I'm here to listen.");
+    // On load: show the newest thread (or create one server-side already done).
+    window.addEventListener("load", async () => {
+      const threads = await loadThreads();
+      if (threads.length) await selectThread(threads[0].id);
     });
   </script>
 </body>

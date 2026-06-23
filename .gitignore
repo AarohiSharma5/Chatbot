@@ -19,6 +19,9 @@ env/
 chatbot.db
 memory.json
 
+# --- Neon CLI marker (local tooling, not project code) ---
+.neon
+
 # --- Editor / OS junk ---
 .DS_Store
 .vscode/
