@@ -357,3 +357,10 @@ def _migrate_from_json(json_file="memory.json"):
 
 # Make sure the tables exist as soon as this module is imported.
 init_db()
+
+# A one-line note in the logs so it's obvious which database we're using.
+import sys as _sys
+print(
+    f"[storage] backend={'postgres' if USE_POSTGRES else 'sqlite'}",
+    file=_sys.stderr,
+)
