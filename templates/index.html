@@ -267,14 +267,51 @@
     .iconbtn.off { background: #8a6d4f; opacity: 0.55; }
     .hidden { display: none !important; }
 
-    @media (max-width: 720px) {
-      .app { height: 92vh; }
-      .sidebar { width: 168px; }
+    /* Hamburger lives in the header but only shows on small screens. */
+    .menu-toggle { display: none; }
+    /* Dark overlay behind the slide-in sidebar on mobile. */
+    .backdrop {
+      display: none; position: absolute; inset: 0; z-index: 20;
+      background: rgba(20, 12, 8, 0.5);
+    }
+
+    @media (max-width: 760px) {
+      body { padding: 0; align-items: stretch; }
+      .app {
+        max-width: none; height: 100vh; height: 100dvh;
+        border-radius: 0; border: none; box-shadow: none;
+        position: relative;
+      }
+
+      /* Sidebar becomes a slide-in drawer. */
+      .sidebar {
+        position: absolute; top: 0; left: 0; bottom: 0; z-index: 30;
+        width: 82%; max-width: 300px;
+        transform: translateX(-100%);
+        transition: transform 0.22s ease;
+        box-shadow: 4px 0 24px rgba(20, 12, 8, 0.5);
+      }
+      .app.nav-open .sidebar { transform: translateX(0); }
+      .app.nav-open .backdrop { display: block; }
+
+      .menu-toggle { display: inline-block; }
+      .chat__messages { padding: 14px; }
+      .msg { max-width: 88%; }
+      .chat__input { padding: 10px; gap: 6px; }
+      .iconbtn { width: 40px; height: 40px; font-size: 16px; }
+      .chat__header { padding: 12px 14px; }
+      .chat__header select, .chat__header .hbtn { padding: 6px 10px; }
+    }
+
+    /* Very narrow phones: drop the less-essential input buttons. */
+    @media (max-width: 420px) {
+      #speak, #mic { display: none; }
     }
   </style>
 </head>
 <body data-theme="{{ theme }}">
   <div class="app">
+    <div class="backdrop" id="backdrop"></div>
     <aside class="sidebar">
       <div class="sidebar__top">
         <button class="sidebar__new" id="newChat">+ New chat</button>
@@ -292,6 +329,7 @@
 
     <main class="chat">
       <div class="chat__header">
+        <button type="button" class="hbtn menu-toggle" id="menuToggle" title="Menu" aria-label="Menu">&#9776;</button>
         <span class="dot"></span>
         <span class="title">ChatBot</span>
         <span class="spacer"></span>
@@ -327,5 +365,18 @@
     };
   </script>
   <script src="{{ url_for('static', filename='chat.js') }}"></script>
+  <script>
+    // Mobile slide-in sidebar: toggle with the hamburger, close on backdrop
+    // tap or after picking/creating a chat.
+    (function () {
+      const app = document.querySelector(".app");
+      const open = () => app.classList.add("nav-open");
+      const close = () => app.classList.remove("nav-open");
+      document.getElementById("menuToggle").addEventListener("click", open);
+      document.getElementById("backdrop").addEventListener("click", close);
+      document.getElementById("threads").addEventListener("click", close);
+      document.getElementById("newChat").addEventListener("click", close);
+    })();
+  </script>
 </body>
 </html>
