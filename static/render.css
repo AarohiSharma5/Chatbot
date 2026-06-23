@@ -1,0 +1,26 @@
+/*
+ * Styles that travel WITH the reusable Render module: code-block copy buttons
+ * and a couple of math/code tweaks. Include this on any page that uses
+ * Render.rich() so formatted output looks the same everywhere.
+ */
+.codeblock { position: relative; }
+
+.codeblock .code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f3e9d8;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  font-size: 11px;
+  padding: 3px 9px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s;
+}
+.codeblock:hover .code-copy { opacity: 1; }
+.codeblock .code-copy:hover { background: rgba(255, 255, 255, 0.22); }
+
+/* Let wide math/equations scroll instead of overflowing the bubble. */
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }

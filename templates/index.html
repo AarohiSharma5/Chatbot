@@ -15,6 +15,10 @@
   <!-- highlight.js colourises code blocks. -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/atom-one-dark.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/highlight.min.js"></script>
+
+  <!-- Our reusable rich-text renderer (markdown + math + code + copy). -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='render.css') }}" />
+  <script src="{{ url_for('static', filename='render.js') }}"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -214,13 +218,28 @@
     .msg--bot pre { background: #2e1c14; color: #f3e9d8; padding: 10px 12px; border-radius: 10px; overflow-x: auto; margin: 6px 0; }
     .msg--bot pre code { background: transparent; padding: 0; color: inherit; }
 
-    .actions { display: flex; gap: 10px; padding: 0 4px; opacity: 0; transition: opacity 0.12s; }
+    .actions { display: flex; gap: 10px; padding: 0 4px; opacity: 0; transition: opacity 0.12s; align-items: center; }
     .turn:hover .actions { opacity: 1; }
     .actions button {
       background: transparent; border: none; color: var(--muted);
       font-size: 12px; cursor: pointer; padding: 0; font-family: inherit;
     }
     .actions button:hover { color: var(--bot-text); text-decoration: underline; }
+    .actions .time { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+    /* Floating scroll-to-bottom button */
+    .chat__body { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .scrolldown {
+      position: absolute; right: 16px; bottom: 14px; z-index: 5;
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--user-grad); color: #f0e6d2; border: none;
+      font-size: 16px; cursor: pointer; box-shadow: 0 4px 12px rgba(20,12,8,0.4);
+      display: none;
+    }
+    .scrolldown.show { display: block; }
+
+    /* Loading shimmer while a thread's history loads */
+    .loading { color: var(--muted); font-size: 14px; padding: 14px; align-self: center; }
 
     .typing-dots span { display: inline-block; animation: blink 1.4s infinite both; font-weight: bold; }
     .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
@@ -233,12 +252,13 @@
       padding: 3px 9px; border-radius: 12px;
     }
 
-    .chat__input { display: flex; gap: 8px; padding: 14px; border-top: 1px solid var(--border); background: var(--input-bg); align-items: center; }
-    .chat__input input[type="text"] {
-      flex: 1; padding: 12px 16px; border: 1px solid #cdb38c; border-radius: 24px;
+    .chat__input { display: flex; gap: 8px; padding: 14px; border-top: 1px solid var(--border); background: var(--input-bg); align-items: flex-end; }
+    .chat__input textarea {
+      flex: 1; padding: 11px 16px; border: 1px solid #cdb38c; border-radius: 22px;
       font-size: 15px; outline: none; background: var(--input-field); color: var(--bot-text);
+      font-family: inherit; resize: none; line-height: 1.4; max-height: 140px; overflow-y: auto;
     }
-    .chat__input input::placeholder { color: var(--muted); }
+    .chat__input textarea::placeholder { color: var(--muted); }
     .iconbtn {
       background: var(--user-grad); color: #f0e6d2; border: none; border-radius: 50%;
       width: 44px; height: 44px; font-size: 17px; cursor: pointer; flex-shrink: 0;
@@ -282,7 +302,10 @@
         <button type="button" class="hbtn" id="export" title="Download this conversation">Export</button>
       </div>
 
-      <div class="chat__messages" id="messages"></div>
+      <div class="chat__body">
+        <div class="chat__messages" id="messages"></div>
+        <button type="button" class="scrolldown" id="scrolldown" title="Jump to latest">&#8595;</button>
+      </div>
       <div class="docs hidden" id="docs"></div>
 
       <form class="chat__input" id="form">
@@ -290,7 +313,7 @@
         <button type="button" class="iconbtn" id="attach" title="Attach a document">&#128206;</button>
         <button type="button" class="iconbtn" id="mic" title="Speak">&#127908;</button>
         <button type="button" class="iconbtn off" id="speak" title="Read replies aloud">&#128264;</button>
-        <input id="input" type="text" placeholder="Type a message..." autocomplete="off" autofocus />
+        <textarea id="input" rows="1" placeholder="Type a message..." autocomplete="off" autofocus></textarea>
         <button type="submit" class="iconbtn" id="send">&#10148;</button>
         <button type="button" class="iconbtn hidden" id="stop" title="Stop">&#9632;</button>
       </form>

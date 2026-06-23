@@ -368,6 +368,19 @@ def thread_delete(thread_id):
     return ("", 204)
 
 
+@app.route("/threads/<int:thread_id>/rename", methods=["POST"])
+@login_required
+def thread_rename(thread_id):
+    """Rename a conversation (used by double-click in the sidebar)."""
+    user_id = current_user_id()
+    if not storage.thread_belongs_to(user_id, thread_id):
+        return jsonify({"error": "not found"}), 404
+    title = (request.get_json(silent=True) or {}).get("title", "").strip()
+    if title:
+        storage.rename_thread(user_id, thread_id, title[:60])
+    return ("", 204)
+
+
 @app.route("/threads/<int:thread_id>/persona", methods=["POST"])
 @login_required
 def thread_persona(thread_id):

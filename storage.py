@@ -432,18 +432,18 @@ def load_history(user_id, thread_id=None):
     with _cursor() as cur:
         if thread_id is None:
             cur.execute(
-                _q("SELECT you, bot FROM messages WHERE user_id = ? ORDER BY id"),
+                _q("SELECT you, bot, created FROM messages WHERE user_id = ? ORDER BY id"),
                 (user_id,),
             )
         else:
             cur.execute(
                 _q(
-                    "SELECT you, bot FROM messages WHERE user_id = ? AND thread_id = ? ORDER BY id"
+                    "SELECT you, bot, created FROM messages WHERE user_id = ? AND thread_id = ? ORDER BY id"
                 ),
                 (user_id, thread_id),
             )
         rows = cur.fetchall()
-    return [{"you": you, "bot": bot} for (you, bot) in rows]
+    return [{"you": you, "bot": bot, "created": str(created)} for (you, bot, created) in rows]
 
 
 def load_memory(user_id):

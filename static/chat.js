@@ -23,44 +23,20 @@ let abortController = null;
 let ttsOn = localStorage.getItem("tts") === "on";
 
 // ---- helpers ----
-function renderMarkdown(text) {
-  return DOMPurify.sanitize(marked.parse(text || ""));
-}
+// Rendering lives in the shared, reusable Render module (static/render.js),
+// so the chat page and the memory page format text identically.
+const renderMarkdown = (text) => Render.markdown(text);
+const renderRich = (el, text) => Render.rich(el, text);
 
-// Full "rich" render for a finished bot message: markdown + LaTeX math
-// (KaTeX) + code syntax highlighting (highlight.js). We do the heavier math
-// and highlighting passes once a message is complete (or when loading old
-// ones), since they don't like half-finished input mid-stream.
-function renderRich(bubble, text) {
-  bubble.dataset.raw = text;
-
-  // Markdown would mangle LaTeX delimiters (\( becomes (, etc.), so pull the
-  // math out first, run markdown, then put the math back untouched for KaTeX.
-  const math = [];
-  const stash = (m) => { math.push(m); return `@@MATH${math.length - 1}@@`; };
-  let protectedText = text
-    .replace(/\\\[[\s\S]*?\\\]/g, stash)
-    .replace(/\$\$[\s\S]*?\$\$/g, stash)
-    .replace(/\\\([\s\S]*?\\\)/g, stash);
-
-  let html = renderMarkdown(protectedText);
-  html = html.replace(/@@MATH(\d+)@@/g, (_, i) => math[i]);
-  bubble.innerHTML = html;
-
-  if (window.renderMathInElement) {
-    try {
-      window.renderMathInElement(bubble, {
-        delimiters: [
-          { left: "$$", right: "$$", display: true },
-          { left: "\\[", right: "\\]", display: true },
-          { left: "\\(", right: "\\)", display: false },
-        ],
-        throwOnError: false,
-      });
-    } catch (e) { /* leave raw math if KaTeX trips */ }
-  }
-  if (window.hljs) {
-    bubble.querySelectorAll("pre code").forEach((el) => window.hljs.highlightElement(el));
+function fmtTime(created) {
+  // `created` is a UTC string from the DB, undefined for a brand-new message,
+  // or false to mean "no timestamp" (e.g. the greeting bubble).
+  if (created === false) return "";
+  try {
+    const d = created ? new Date(created.replace(" ", "T") + "Z") : new Date();
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch (e) {
+    return "";
   }
 }
 
@@ -70,10 +46,12 @@ function greetingText() {
     : "Hi! I'm your new friend. Tell me what's on your mind, I'm here to listen.";
 }
 
-// A "turn" wraps one bubble plus its little action row (copy/edit/regenerate).
-function addTurn(text, who) {
+// A "turn" wraps one bubble plus its little action row (copy/edit/regenerate
+// and a timestamp). `created` may be a DB string, undefined (= now), or false.
+function addTurn(text, who, created) {
   const turn = document.createElement("div");
   turn.className = "turn turn--" + who;
+  turn.dataset.time = fmtTime(created);
 
   const bubble = document.createElement("div");
   bubble.className = "msg msg--" + who;
@@ -87,7 +65,7 @@ function addTurn(text, who) {
   turn.appendChild(actions);
 
   messagesEl.appendChild(turn);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  scrollToBottom();
   return { turn, bubble, actions };
 }
 
@@ -120,12 +98,48 @@ function refreshActions() {
     } else if (turn === lastUser && !sending) {
       actions.appendChild(actionButton("Edit", () => {
         inputEl.value = bubble.dataset.raw || "";
+        autosize();
         pendingEdit = true;
         inputEl.focus();
       }));
     }
+    if (turn.dataset.time) {
+      const t = document.createElement("span");
+      t.className = "time";
+      t.textContent = turn.dataset.time;
+      actions.appendChild(t);
+    }
   });
 }
+
+// ---- scrolling ----
+function nearBottom() {
+  return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+}
+function scrollToBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+function updateScrollBtn() {
+  document.getElementById("scrolldown").classList.toggle("show", !nearBottom());
+}
+messagesEl.addEventListener("scroll", updateScrollBtn);
+document.getElementById("scrolldown").addEventListener("click", () => {
+  scrollToBottom();
+  updateScrollBtn();
+});
+
+// ---- textarea: Enter sends, Shift+Enter newlines, auto-grow ----
+function autosize() {
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + "px";
+}
+inputEl.addEventListener("input", autosize);
+inputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    formEl.requestSubmit();
+  }
+});
 
 function speak(text) {
   if (!ttsOn || !window.speechSynthesis) return;
@@ -151,6 +165,12 @@ function renderThreads(threads) {
     const title = document.createElement("span");
     title.className = "thread__title";
     title.textContent = t.title || "New chat";
+    title.title = "Double-click to rename";
+    title.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      const next = prompt("Rename conversation:", t.title || "");
+      if (next && next.trim()) renameThread(t.id, next.trim());
+    });
     row.appendChild(title);
 
     const del = document.createElement("button");
@@ -175,15 +195,18 @@ async function selectThread(id) {
   const meta = threadsCache.find((t) => t.id === id);
   if (meta) personaEl.value = meta.persona || "friend";
 
+  messagesEl.innerHTML = '<div class="loading">Loading…</div>';
   const msgs = await (await fetch(`/threads/${id}/messages`)).json();
   messagesEl.innerHTML = "";
   if (!msgs.length) {
-    addTurn(greetingText(), "bot");
+    addTurn(greetingText(), "bot", false);
   } else {
-    msgs.forEach((m) => { addTurn(m.you, "user"); addTurn(m.bot, "bot"); });
+    msgs.forEach((m) => { addTurn(m.you, "user", m.created); addTurn(m.bot, "bot", m.created); });
   }
   refreshActions();
   loadDocs(id);
+  scrollToBottom();
+  updateScrollBtn();
   inputEl.focus();
 }
 
@@ -198,6 +221,18 @@ async function deleteThread(id) {
   await fetch(`/threads/${id}/delete`, { method: "POST" });
   const threads = await loadThreads();
   if (id === currentThreadId && threads.length) await selectThread(threads[0].id);
+}
+
+async function renameThread(id, title) {
+  await fetch(`/threads/${id}/rename`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  await loadThreads();
+  [...threadsEl.children].forEach((row) =>
+    row.classList.toggle("active", Number(row.dataset.id) === currentThreadId)
+  );
 }
 
 // ---- documents ----
@@ -265,12 +300,14 @@ async function doSend(text, opts = {}) {
       const { done, value } = await reader.read();
       if (done) break;
       if (firstChunk) { raw = ""; firstChunk = false; }
+      const stick = nearBottom();
       raw += decoder.decode(value, { stream: true });
       bubble.innerHTML = renderMarkdown(raw);
       bubble.dataset.raw = raw;
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      if (stick) scrollToBottom();
     }
     renderRich(bubble, raw); // final pass: math + code highlighting
+    updateScrollBtn();
     speak(raw);
   } catch (err) {
     if (err.name === "AbortError") {
@@ -299,6 +336,7 @@ formEl.addEventListener("submit", (event) => {
   const text = inputEl.value.trim();
   if (text === "") return;
   inputEl.value = "";
+  autosize();
   const editing = pendingEdit;
   pendingEdit = false;
   if (editing) {

@@ -118,6 +118,11 @@ def build_messages(message, history, memories=None, system_prompt=None, context=
     replay the recent conversation, then add the new user message.
     """
     system = system_prompt or SYSTEM_PROMPT
+    # Always mirror the user's language -- reply in whatever language they wrote.
+    system += (
+        "\n\nAlways reply in the same language the user writes in. If they "
+        "switch languages, switch with them."
+    )
     if context:
         # Excerpts retrieved from the user's uploaded documents (doc RAG).
         system += "\n\nUse these excerpts from the user's documents to answer:\n" + context
