@@ -101,6 +101,35 @@ def looks_like_task(message):
     return bool(words & REQUEST_WORDS)
 
 
+# Emotional cues. When the user sounds upset, hurting, or is going through
+# period/PMS discomfort, the web app gently switches that reply into the soft
+# "comfort" tone (without changing their saved persona).
+MOOD_WORDS = {
+    "sad", "crying", "cry", "cried", "depressed", "depressing", "anxious",
+    "anxiety", "overwhelmed", "exhausted", "drained", "lonely", "alone",
+    "stressed", "stress", "hopeless", "miserable", "upset", "heartbroken",
+    "hurting", "hurt", "panic", "panicking", "worthless", "numb", "broken",
+    "period", "periods", "cramps", "cramp", "pms", "hormonal", "bloated",
+    "emotional", "tearful", "burnout", "burnt", "unwell",
+}
+MOOD_PHRASES = (
+    "bad day", "awful day", "terrible day", "rough day", "worst day",
+    "hate myself", "want to cry", "feel like crying", "can't do this",
+    "cant do this", "give up", "so tired", "not okay", "not ok",
+    "feeling low", "feel low", "feel down", "feeling down", "break down",
+    "breaking down", "i'm done", "im done", "on my period", "got my period",
+)
+
+
+def detect_mood(message):
+    """True if the message sounds emotionally heavy (sad, hurting, period days)."""
+    text = (message or "").lower()
+    if any(phrase in text for phrase in MOOD_PHRASES):
+        return True
+    words = {word.strip(string.punctuation) for word in text.split()}
+    return bool(words & MOOD_WORDS)
+
+
 def get_intent(message):
     """Return the best-matching intent for the message, or None."""
     # Lower-casing makes matching case-insensitive ("Hi" == "hi").

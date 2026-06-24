@@ -227,6 +227,14 @@
     .actions button:hover { color: var(--bot-text); text-decoration: underline; }
     .actions .time { font-size: 11px; color: var(--muted); margin-left: auto; }
 
+    /* Little "tool used" chips under a bot reply. */
+    .toolchips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 0; }
+    .toolchip {
+      font-size: 11px; padding: 2px 8px; border-radius: 10px;
+      background: rgba(111, 78, 55, 0.14); color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
     /* Floating scroll-to-bottom button */
     .chat__body { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
     .scrolldown {

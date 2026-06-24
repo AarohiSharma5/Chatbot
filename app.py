@@ -48,6 +48,12 @@ MAX_UPLOAD_BYTES = 2 * 1024 * 1024  # 2 MB
 DOC_CHUNK_CHARS = 800               # characters per document chunk
 DOC_TOP_K = 4                       # how many chunks to feed the AI
 
+# A rare control character that marks the tail of the stream where we send
+# tool-usage metadata as JSON. The browser splits on it and never shows it.
+TOOL_SENTINEL = "\u241e"
+SUMMARIZE_AFTER = 12   # only start summarising once a thread has this many turns
+SUMMARIZE_EVERY = 6    # then refresh the summary every N turns
+
 app = Flask(__name__)
 
 # The secret key signs the session cookie so users can't forge another
@@ -136,13 +142,29 @@ def capture_name(user_id, user_message):
     return f"Nice to meet you, {name}! I'll remember that."
 
 
-def _save_exchange(user_id, thread_id, user_message, reply, intent):
+def _save_exchange(user_id, thread_id, user_message, reply, intent, tools_used=None):
     """Record one exchange in the database and update conversation state."""
     state = _state(user_id)
-    storage.add_message(user_id, user_message, reply, thread_id)
+    storage.add_message(user_id, user_message, reply, thread_id, tools_used)
     if intent is not None:
         state["last_intent"] = intent
     state["awaiting_name"] = intent == "ask_my_name" and not storage.get_user_name(user_id)
+
+
+def _maybe_summarize(user_id, thread_id):
+    """On longer threads, refresh a short rolling summary of earlier turns so
+    the AI keeps older context cheaply. Best-effort: skipped if the model is
+    unavailable, and never blocks the reply (it runs after we've answered)."""
+    count = storage.thread_message_count(user_id, thread_id)
+    if count < SUMMARIZE_AFTER or count % SUMMARIZE_EVERY != 0:
+        return
+    try:
+        history = storage.load_history(user_id, thread_id)
+        summary = ai_brain.summarize(history)
+        if summary:
+            storage.set_summary(user_id, thread_id, summary)
+    except Exception:  # noqa: BLE001 -- summarising is a bonus, never fatal
+        pass
 
 
 def _doc_context(user_id, thread_id, query):
@@ -197,13 +219,29 @@ def stream_reply(user_id, thread_id, user_message, history):
     # No rule matched -> hand off to the AI, which can now CALL TOOLS on its
     # own (weather, web lookup, calculator, date/time, save-a-memory). It's
     # steered by this thread's persona and grounded in uploaded docs + memories.
-    system_prompt = ai_brain.persona_prompt(storage.get_persona(user_id, thread_id))
+    persona = storage.get_persona(user_id, thread_id)
+    # MOOD-AWARE COMFORT: if the user sounds upset (and they haven't already
+    # chosen a persona other than the default friend), gently answer in the
+    # soft comfort tone for this message -- without changing their saved choice.
+    if persona == "friend" and chatbot.detect_mood(user_message):
+        persona = "comfort"
+    system_prompt = ai_brain.persona_prompt(persona)
+
+    # SUMMARY: long threads keep a rolling summary of earlier turns so the AI
+    # has older context without us resending the whole history every time.
+    summary = storage.get_summary(user_id, thread_id)
+    if summary:
+        system_prompt += "\n\nSummary of earlier conversation:\n" + summary
+
     context = _doc_context(user_id, thread_id, user_message)
     memories = memory_brain.recall(user_id, user_message)
     messages = ai_brain.build_messages(user_message, history, memories, system_prompt, context)
 
+    used_tools = []  # which tools the model actually called (for UI chips)
+
     def dispatch(name, args):
         """Actually run a tool the model asked for. Returns text for the model."""
+        used_tools.append(name)
         # Tools discovered from an MCP server are routed to the MCP client.
         if mcp_client.is_mcp_tool(name):
             return mcp_client.call_tool(name, args) or "No result from MCP tool."
@@ -248,7 +286,16 @@ def stream_reply(user_id, thread_id, user_message, history):
         full_reply = random.choice(chatbot.FALLBACK)
         yield full_reply
 
-    _save_exchange(user_id, thread_id, user_message, full_reply, "ai")
+    # De-duplicate tool names while preserving order, for the UI chips.
+    tools_used = list(dict.fromkeys(used_tools))
+    _save_exchange(user_id, thread_id, user_message, full_reply, "ai", tools_used)
+
+    # Tell the browser which tools fired (after a sentinel it strips out).
+    if tools_used:
+        yield TOOL_SENTINEL + json.dumps({"tools": tools_used})
+
+    # Refresh the rolling summary occasionally on longer threads.
+    _maybe_summarize(user_id, thread_id)
 
 
 # --------------------------------------------------------------------------

@@ -23,6 +23,10 @@ let abortController = null;
 let ttsOn = localStorage.getItem("tts") === "on";
 let avatarGender = localStorage.getItem("avatarGender") || "off"; // off | male | female
 
+// Marks the tail of the stream where the server sends tool-usage JSON. Must
+// match TOOL_SENTINEL in app.py. We strip it out before showing the reply.
+const TOOL_SENTINEL = "\u241e";
+
 // ---- helpers ----
 // Rendering lives in the shared, reusable Render module (static/render.js),
 // so the chat page and the memory page format text identically.
@@ -47,9 +51,40 @@ function greetingText() {
     : "Hi! I'm your new friend. Tell me what's on your mind, I'm here to listen.";
 }
 
+// Friendly labels for the little "tool used" chips under a bot reply.
+const TOOL_LABELS = {
+  get_weather: "\uD83C\uDF26\uFE0F weather",
+  web_answer: "\uD83D\uDD0E web",
+  calculate: "\uD83E\uDDEE calc",
+  current_datetime: "\uD83D\uDD52 time",
+  remember_fact: "\uD83D\uDCBE memory",
+};
+function toolLabel(name) {
+  if (TOOL_LABELS[name]) return TOOL_LABELS[name];
+  return "\uD83D\uDD0C " + name; // unknown / MCP tools get a plug icon
+}
+
+// Show which tools the AI used for a given turn (chips under the bubble).
+function addToolChips(turn, toolNames) {
+  if (!toolNames || !toolNames.length) return;
+  let row = turn.querySelector(".toolchips");
+  if (!row) {
+    row = document.createElement("div");
+    row.className = "toolchips";
+    turn.insertBefore(row, turn.querySelector(".actions"));
+  }
+  row.innerHTML = "";
+  toolNames.forEach((name) => {
+    const chip = document.createElement("span");
+    chip.className = "toolchip";
+    chip.textContent = toolLabel(name);
+    row.appendChild(chip);
+  });
+}
+
 // A "turn" wraps one bubble plus its little action row (copy/edit/regenerate
 // and a timestamp). `created` may be a DB string, undefined (= now), or false.
-function addTurn(text, who, created) {
+function addTurn(text, who, created, toolNames) {
   const turn = document.createElement("div");
   turn.className = "turn turn--" + who;
   turn.dataset.time = fmtTime(created);
@@ -64,6 +99,8 @@ function addTurn(text, who, created) {
   const actions = document.createElement("div");
   actions.className = "actions";
   turn.appendChild(actions);
+
+  if (who === "bot") addToolChips(turn, toolNames);
 
   messagesEl.appendChild(turn);
   scrollToBottom();
@@ -319,7 +356,7 @@ async function selectThread(id) {
   if (!msgs.length) {
     addTurn(greetingText(), "bot", false);
   } else {
-    msgs.forEach((m) => { addTurn(m.you, "user", m.created); addTurn(m.bot, "bot", m.created); });
+    msgs.forEach((m) => { addTurn(m.you, "user", m.created); addTurn(m.bot, "bot", m.created, m.tools); });
   }
   refreshActions();
   loadDocs(id);
@@ -387,7 +424,7 @@ async function doSend(text, opts = {}) {
     addTurn(text, "user");
   }
 
-  const { bubble } = addTurn("", "bot");
+  const { turn, bubble } = addTurn("", "bot");
   bubble.innerHTML = '<span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>';
   let raw = "";
   let firstChunk = true;
@@ -420,10 +457,19 @@ async function doSend(text, opts = {}) {
       if (firstChunk) { raw = ""; firstChunk = false; }
       const stick = nearBottom();
       raw += decoder.decode(value, { stream: true });
-      bubble.innerHTML = renderMarkdown(raw);
-      bubble.dataset.raw = raw;
+      // The reply text is everything before the tool-metadata sentinel.
+      const visible = raw.split(TOOL_SENTINEL)[0];
+      bubble.innerHTML = renderMarkdown(visible);
+      bubble.dataset.raw = visible;
       if (stick) scrollToBottom();
     }
+    // Split off the tool-usage metadata (if any) and show chips for it.
+    const parts = raw.split(TOOL_SENTINEL);
+    raw = parts[0];
+    if (parts[1]) {
+      try { addToolChips(turn, JSON.parse(parts[1]).tools); } catch (e) {}
+    }
+    bubble.dataset.raw = raw;
     renderRich(bubble, raw); // final pass: math + code highlighting
     updateScrollBtn();
     speak(raw);

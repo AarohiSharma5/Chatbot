@@ -193,7 +193,9 @@ def init_db():
     _ensure_column("users", "password_hash", "TEXT")
     _ensure_column("users", "theme", "TEXT")
     _ensure_column("messages", "thread_id", "INTEGER")
+    _ensure_column("messages", "tools", "TEXT")
     _ensure_column("threads", "persona", "TEXT NOT NULL DEFAULT 'friend'")
+    _ensure_column("threads", "summary", "TEXT")
 
     # One username per account. NULLs are allowed (multiple), so legacy /
     # anonymous rows without a username don't clash.
@@ -383,6 +385,26 @@ def get_persona(user_id, thread_id):
     return (row[0] if row and row[0] else "friend")
 
 
+def get_summary(user_id, thread_id):
+    """Return a thread's rolling summary of earlier turns (or '')."""
+    with _cursor() as cur:
+        cur.execute(
+            _q("SELECT summary FROM threads WHERE id = ? AND user_id = ?"),
+            (thread_id, user_id),
+        )
+        row = cur.fetchone()
+    return (row[0] if row and row[0] else "")
+
+
+def set_summary(user_id, thread_id, summary):
+    """Store a thread's rolling summary."""
+    with _cursor() as cur:
+        cur.execute(
+            _q("UPDATE threads SET summary = ? WHERE id = ? AND user_id = ?"),
+            (summary, thread_id, user_id),
+        )
+
+
 def set_persona(user_id, thread_id, persona):
     """Set a thread's persona (only if it belongs to this user)."""
     with _cursor() as cur:
@@ -432,18 +454,21 @@ def load_history(user_id, thread_id=None):
     with _cursor() as cur:
         if thread_id is None:
             cur.execute(
-                _q("SELECT you, bot, created FROM messages WHERE user_id = ? ORDER BY id"),
+                _q("SELECT you, bot, created, tools FROM messages WHERE user_id = ? ORDER BY id"),
                 (user_id,),
             )
         else:
             cur.execute(
                 _q(
-                    "SELECT you, bot, created FROM messages WHERE user_id = ? AND thread_id = ? ORDER BY id"
+                    "SELECT you, bot, created, tools FROM messages WHERE user_id = ? AND thread_id = ? ORDER BY id"
                 ),
                 (user_id, thread_id),
             )
         rows = cur.fetchall()
-    return [{"you": you, "bot": bot, "created": str(created)} for (you, bot, created) in rows]
+    return [
+        {"you": you, "bot": bot, "created": str(created), "tools": (tools.split(",") if tools else [])}
+        for (you, bot, created, tools) in rows
+    ]
 
 
 def load_memory(user_id):
@@ -451,12 +476,17 @@ def load_memory(user_id):
     return {"user_name": get_user_name(user_id), "history": load_history(user_id)}
 
 
-def add_message(user_id, you, bot, thread_id=None):
-    """Insert one exchange, then trim the oldest so a thread/user stays bounded."""
+def add_message(user_id, you, bot, thread_id=None, tools_used=None):
+    """Insert one exchange, then trim the oldest so a thread/user stays bounded.
+
+    `tools_used` is an optional list of tool names the AI called for this reply
+    (stored comma-separated) so the UI can show little "tool used" chips.
+    """
+    tools_str = ",".join(tools_used) if tools_used else ""
     with _cursor() as cur:
         cur.execute(
-            _q("INSERT INTO messages (user_id, thread_id, you, bot) VALUES (?, ?, ?, ?)"),
-            (user_id, thread_id, you, bot),
+            _q("INSERT INTO messages (user_id, thread_id, you, bot, tools) VALUES (?, ?, ?, ?, ?)"),
+            (user_id, thread_id, you, bot, tools_str),
         )
         if thread_id is None:
             cur.execute(

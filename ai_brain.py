@@ -275,6 +275,26 @@ def run_with_tools(messages, schemas, dispatch, max_rounds=4):
     return (msg.get("content") or "").strip() or None
 
 
+def summarize(history):
+    """Condense a conversation into a few durable bullet points, or None.
+
+    Used to keep older context on long threads without resending every turn.
+    Best-effort: returns None if the provider is unavailable.
+    """
+    if not history:
+        return None
+    transcript = "\n".join(f"User: {t['you']}\nBot: {t['bot']}" for t in history)
+    messages = [
+        {"role": "system", "content": (
+            "Summarise the conversation into 3-6 short bullet points capturing "
+            "durable context: the user's name, preferences, ongoing topics or "
+            "tasks, and important facts. Be concise. Output only the bullets."
+        )},
+        {"role": "user", "content": transcript[:6000]},
+    ]
+    return chat_once(messages)
+
+
 def _post_json(url, payload, headers):
     """Helper: POST a JSON `payload` to `url` and return the parsed JSON.
 
