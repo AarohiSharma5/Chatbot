@@ -38,6 +38,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 # Reuse the logic we already built and tested in chatbot.py.
 import ai_brain
 import chatbot
+import mcp_client
 import memory_brain
 import storage
 import tools
@@ -203,6 +204,9 @@ def stream_reply(user_id, thread_id, user_message, history):
 
     def dispatch(name, args):
         """Actually run a tool the model asked for. Returns text for the model."""
+        # Tools discovered from an MCP server are routed to the MCP client.
+        if mcp_client.is_mcp_tool(name):
+            return mcp_client.call_tool(name, args) or "No result from MCP tool."
         if name == "get_weather":
             return tools.get_weather(args.get("place", "")) or "No weather found."
         if name == "web_answer":
@@ -219,10 +223,14 @@ def stream_reply(user_id, thread_id, user_message, history):
             return "Nothing to save."
         return "Unknown tool."
 
+    # Offer the model BOTH our built-in tools and any tools discovered from the
+    # MCP server -- it picks whichever fits the question.
+    all_schemas = tools.TOOL_SCHEMAS + mcp_client.get_tool_schemas()
+
     full_reply = ""
     # The tool loop is non-streaming, so we get the whole answer, then "type"
     # it out word-by-word to keep the familiar streaming feel.
-    final_text = ai_brain.run_with_tools(messages, tools.TOOL_SCHEMAS, dispatch)
+    final_text = ai_brain.run_with_tools(messages, all_schemas, dispatch)
     if final_text:
         for piece in re.split(r"(\s+)", final_text):
             if piece:
