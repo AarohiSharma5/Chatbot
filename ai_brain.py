@@ -168,6 +168,89 @@ def chat_once(messages):
     return _ask_ollama(messages)
 
 
+# ---------------------------------------------------------------------------
+# NATIVE TOOL (FUNCTION) CALLING.
+#
+# We send the model a list of tool SCHEMAS. The model may answer normally, or
+# it may reply asking us to run a tool (a "tool_call") with some arguments. We
+# run the real function, feed the result back as a role:"tool" message, and ask
+# again -- looping until the model is happy to give a final text answer.
+#
+# `dispatch(name, args_dict) -> str` is supplied by the caller (app.py), which
+# knows how to actually run each tool (and has the user's id for memory).
+# ---------------------------------------------------------------------------
+def _chat_with_tools(messages, schemas):
+    """One non-streaming chat turn WITH tools. Returns the assistant message
+    dict (which may contain `tool_calls`), or None if the provider failed."""
+    if PROVIDER == "openrouter":
+        if not OPENROUTER_API_KEY:
+            _log("OPENROUTER_API_KEY not set -> tools unavailable")
+            return None
+        for model in OPENROUTER_MODELS:
+            result = _post_json(
+                OPENROUTER_URL,
+                {"model": model, "messages": messages, "tools": schemas, "tool_choice": "auto"},
+                {"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+            )
+            if result is None:
+                continue
+            if "error" in result:
+                _log(f"{model} tools error: {str(result['error'])[:160]} -> trying next")
+                continue
+            choices = result.get("choices")
+            if choices:
+                return choices[0].get("message") or {}
+        return None
+
+    # Ollama (local). Models like llama3.2 support tools on /api/chat.
+    result = _post_json(
+        OLLAMA_URL, {"model": MODEL, "messages": messages, "tools": schemas, "stream": False}, {}
+    )
+    if result is None or "error" in result:
+        return None
+    return result.get("message") or {}
+
+
+def run_with_tools(messages, schemas, dispatch, max_rounds=4):
+    """Run the model+tool loop and return the FINAL text answer (or None if the
+    provider is unavailable). `messages` is mutated to include tool exchanges.
+
+    Because tools need a non-streaming round-trip, the final answer comes back
+    whole -- the caller can "fake stream" it for the usual typing effect.
+    """
+    for _ in range(max_rounds):
+        msg = _chat_with_tools(messages, schemas)
+        if msg is None:
+            return None
+        calls = msg.get("tool_calls") or []
+        if not calls:
+            return (msg.get("content") or "").strip() or None
+
+        # The model wants tools. Record its request, run each tool, feed results.
+        messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
+        for call in calls:
+            fn = call.get("function", {})
+            name = fn.get("name", "")
+            raw_args = fn.get("arguments")
+            try:
+                args = raw_args if isinstance(raw_args, dict) else json.loads(raw_args or "{}")
+            except Exception:
+                args = {}
+            output = dispatch(name, args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.get("id", ""),
+                "name": name,
+                "content": str(output),
+            })
+
+    # Ran out of rounds -> one last attempt for a plain answer.
+    msg = _chat_with_tools(messages, schemas)
+    if msg is None:
+        return None
+    return (msg.get("content") or "").strip() or None
+
+
 def _post_json(url, payload, headers):
     """Helper: POST a JSON `payload` to `url` and return the parsed JSON.
 

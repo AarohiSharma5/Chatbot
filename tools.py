@@ -17,7 +17,10 @@ Math isn't here on purpose -- the chatbot already has a calculator that runs
 before we ever get to tools.
 """
 
+import ast
+import datetime
 import json
+import operator
 import re
 import urllib.parse
 import urllib.request
@@ -95,7 +98,12 @@ def web_answer(query):
 
 
 def try_tool(message):
-    """Decide whether a tool applies to `message`; run it and return text, or None."""
+    """Decide whether a tool applies to `message`; run it and return text, or None.
+
+    This is the OLD keyword router. With native LLM tool calling (see
+    TOOL_SCHEMAS below) the model decides which tool to use, so this is no
+    longer on the main path -- it's kept as a simple, keyless fallback.
+    """
     text = message.strip()
     lowered = text.lower()
 
@@ -114,3 +122,116 @@ def try_tool(message):
         return web_answer(search_match.group(1).strip(" ?.!"))
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# A safe calculator (no eval of arbitrary code!). We parse the expression into
+# an Abstract Syntax Tree and walk it, allowing ONLY numbers and basic math
+# operators. Anything else raises, so "import os" or function calls can't run.
+# ---------------------------------------------------------------------------
+_MATH_OPS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+    ast.Div: operator.truediv, ast.Pow: operator.pow, ast.Mod: operator.mod,
+    ast.FloorDiv: operator.floordiv, ast.USub: operator.neg, ast.UAdd: operator.pos,
+}
+
+
+def _eval_node(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+    if isinstance(node, ast.BinOp) and type(node.op) in _MATH_OPS:
+        return _MATH_OPS[type(node.op)](_eval_node(node.left), _eval_node(node.right))
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _MATH_OPS:
+        return _MATH_OPS[type(node.op)](_eval_node(node.operand))
+    raise ValueError("unsupported expression")
+
+
+def calculate(expression):
+    """Safely evaluate an arithmetic expression like '12 * (3 + 4)'."""
+    try:
+        value = _eval_node(ast.parse(expression, mode="eval").body)
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        return f"{expression} = {value}"
+    except Exception:
+        return "I couldn't evaluate that expression."
+
+
+def current_datetime():
+    """Return the current local date and time as a sentence."""
+    now = datetime.datetime.now()
+    return now.strftime("It is %I:%M %p on %A, %d %B %Y.")
+
+
+# ---------------------------------------------------------------------------
+# TOOL SCHEMAS -- the JSON descriptions we hand to the LLM so it knows what
+# tools exist, what they do, and which arguments they take. The model reads
+# these and decides (on its own) when to "call" one. This is the heart of
+# native function calling.
+# ---------------------------------------------------------------------------
+TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get the current weather for a city or place name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "place": {"type": "string", "description": "City or place, e.g. 'Tokyo'"}
+                },
+                "required": ["place"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_answer",
+            "description": "Look up a short factual answer from the web (people, places, definitions).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "What to look up"}
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate",
+            "description": "Evaluate an arithmetic expression and return the result.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string", "description": "e.g. '12 * (3 + 4)'"}
+                },
+                "required": ["expression"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "current_datetime",
+            "description": "Get the current date and time.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remember_fact",
+            "description": "Save a durable fact about the user to long-term memory for future chats.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "The fact to remember, e.g. 'User prefers Python'"}
+                },
+                "required": ["text"],
+            },
+        },
+    },
+]

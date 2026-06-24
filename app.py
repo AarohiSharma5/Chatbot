@@ -17,6 +17,8 @@ This version adds:
 import io
 import json
 import os
+import random
+import re
 import time
 import uuid
 from functools import wraps
@@ -191,33 +193,54 @@ def stream_reply(user_id, thread_id, user_message, history):
         _save_exchange(user_id, thread_id, user_message, reply, intent)
         return
 
-    # A TOOL might answer better than the model (live weather, a web lookup).
-    tool_reply = tools.try_tool(user_message)
-    if tool_reply:
-        yield tool_reply
-        _save_exchange(user_id, thread_id, user_message, tool_reply, "tool")
-        return
-
-    # No rule/tool matched -> stream the AI reply token by token, steered by
-    # this thread's persona and grounded in any uploaded documents + memories.
+    # No rule matched -> hand off to the AI, which can now CALL TOOLS on its
+    # own (weather, web lookup, calculator, date/time, save-a-memory). It's
+    # steered by this thread's persona and grounded in uploaded docs + memories.
     system_prompt = ai_brain.persona_prompt(storage.get_persona(user_id, thread_id))
     context = _doc_context(user_id, thread_id, user_message)
     memories = memory_brain.recall(user_id, user_message)
+    messages = ai_brain.build_messages(user_message, history, memories, system_prompt, context)
+
+    def dispatch(name, args):
+        """Actually run a tool the model asked for. Returns text for the model."""
+        if name == "get_weather":
+            return tools.get_weather(args.get("place", "")) or "No weather found."
+        if name == "web_answer":
+            return tools.web_answer(args.get("query", "")) or "No answer found."
+        if name == "calculate":
+            return tools.calculate(args.get("expression", ""))
+        if name == "current_datetime":
+            return tools.current_datetime()
+        if name == "remember_fact":
+            fact = (args.get("text") or "").strip()
+            if fact:
+                memory_brain.remember(user_id, fact)
+                return f"Saved to memory: {fact}"
+            return "Nothing to save."
+        return "Unknown tool."
 
     full_reply = ""
-    for chunk in ai_brain.stream_ai(user_message, history, memories, system_prompt, context):
-        full_reply += chunk
-        yield chunk
+    # The tool loop is non-streaming, so we get the whole answer, then "type"
+    # it out word-by-word to keep the familiar streaming feel.
+    final_text = ai_brain.run_with_tools(messages, tools.TOOL_SCHEMAS, dispatch)
+    if final_text:
+        for piece in re.split(r"(\s+)", final_text):
+            if piece:
+                full_reply += piece
+                yield piece
+    else:
+        # Provider unavailable (no key / offline) -> plain stream, else fallback.
+        for chunk in ai_brain.stream_ai(user_message, history, memories, system_prompt, context):
+            full_reply += chunk
+            yield chunk
 
     if full_reply:
         memory_brain.remember(user_id, user_message)
     else:
-        import random
-
         full_reply = random.choice(chatbot.FALLBACK)
         yield full_reply
 
-    _save_exchange(user_id, thread_id, user_message, full_reply, None)
+    _save_exchange(user_id, thread_id, user_message, full_reply, "ai")
 
 
 # --------------------------------------------------------------------------
