@@ -154,6 +154,11 @@ def get_intent(message):
         )
         if not starts_with_keyword:
             return None
+        # A greeting attached to a real message ("hi, I had an awful day and
+        # just got my period") isn't JUST a greeting -- send the substance to
+        # the AI so it can actually respond with care.
+        if len(words) > 4:
+            return None
 
     return best
 
